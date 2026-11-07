@@ -49,3 +49,17 @@ Vercel 프로젝트 Settings → Domains에 구매한 도메인을 추가합니�
 무료 구성을 보장하지 않습니다. Vercel 플랜, Function 실행·전송량, Blob 저장·읽기/쓰기·다운로드 전송량, Neon 컴퓨트·저장·브랜치 등이 비용 항목입니다. 비공개 Blob을 Function에서 제공하므로 파일 원본 조회와 방문자 전달의 트래픽 비용이 생길 수 있습니다. 파일 응답은 접근 회수를 위해 공유 CDN에 캐시하지 않습니다. [Blob 요금](https://vercel.com/docs/vercel-blob/usage-and-pricing), [Vercel 사용량](https://vercel.com/docs/pricing), [Neon Marketplace](https://vercel.com/marketplace/neon)의 현재 조건을 확인하고 결제 알림·사용량 알림을 설정하세요. 월 한도와 유료 플랜은 아직 지정되지 않았습니다.
 
 배포 후 허용/미허용 계정 로그인, 4.5MB 직접 업로드, 초안 파일 비노출, 홈·게시물 게시, 비공개 접근 회수, PDF 미리보기/다운로드, ZIP 내보내기, 재배포 후 영속성을 실제 환경에서 확인합니다.
+
+## GitHub 로그인 거절 진단
+
+GitHub 인증 후 `/api/auth/callback/github`에서 403 JSON이 표시되면 `code`로 실패 지점을 구분합니다.
+
+| 코드                         | 확인할 항목                                                                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ADMIN_GITHUB_ID_MISSING`    | 실제 접속 중인 배포의 환경에 `ADMIN_GITHUB_ID`가 제공되지 않았습니다. Production/Preview 범위와 재배포 적용 여부를 확인합니다.                        |
+| `ADMIN_GITHUB_ID_INVALID`    | 숫자 고유 ID가 아닌 값입니다. 사용자명, `node_id`, OAuth App ID, 따옴표를 입력하지 않습니다. 앞뒤 일반 공백과 줄바꿈은 제거해 비교합니다.             |
+| `GITHUB_ACCOUNT_NOT_ALLOWED` | GitHub가 반환한 계정 ID와 배포에 설정한 ID가 다릅니다. 브라우저의 GitHub 로그인 계정과 `https://api.github.com/users/<사용자명>`의 `id`를 확인합니다. |
+
+Vercel Runtime Logs에서 `[portfolio-auth] github_identity_rejected`를 검색하면 원인 코드, 설정 ID와 인증 계정 ID의 끝 4자리, 실제 배포 환경과 호스트를 확인할 수 있습니다. 토큰·이메일·OAuth `code`/`state` 및 전체 계정 ID는 이 진단 로그에 기록하지 않습니다. 실패 URL을 공유할 때도 OAuth `code`와 `state`는 제외하고 오류 코드만 전달합니다.
+
+환경 변수가 올바르게 보이더라도 예전 배포 주소, 다른 Preview, 다른 GitHub 브라우저 계정을 사용 중인지 확인합니다. 인증 오류를 해결하기 위해 ID 검증을 제거하거나 모든 계정을 허용하지 않습니다.

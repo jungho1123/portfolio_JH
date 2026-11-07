@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertGithubIdentity, isAdminAccount } from "../lib/auth-policy";
-test("GitHub numeric ID is mandatory and names/email/role cannot authorize", () => {
+test("GitHub numeric ID is mandatory and names/email/role cannot authorize", (t) => {
+  t.mock.method(console, "warn", () => {});
   assert.doesNotThrow(() => assertGithubIdentity(12345, "12345"));
   for (const id of [12346, "admin", "admin@example.com", undefined, null])
     assert.throws(() => assertGithubIdentity(id, "12345"));
@@ -23,7 +24,8 @@ test("GitHub numeric ID is mandatory and names/email/role cannot authorize", () 
 import { betterAuth } from "better-auth/minimal";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { adminAuthOptions } from "../lib/auth-options";
-test("OAuth callback rejects an unallowed account before creating user/account/session", async () => {
+test("OAuth callback rejects an unallowed account before creating user/account/session", async (t) => {
+  t.mock.method(console, "warn", () => {});
   const originalFetch = globalThis.fetch;
   const previousId = process.env.ADMIN_GITHUB_ID;
   process.env.ADMIN_GITHUB_ID = "12345";
@@ -98,7 +100,17 @@ test("OAuth callback rejects an unallowed account before creating user/account/s
       );
     }
     const rejected = await login();
-    assert.ok(rejected.status >= 300);
+    assert.equal(rejected.status, 403);
+    assert.equal((await rejected.json()).code, "GITHUB_ACCOUNT_NOT_ALLOWED");
+    delete process.env.ADMIN_GITHUB_ID;
+    const missing = await login();
+    assert.equal(missing.status, 403);
+    assert.equal((await missing.json()).code, "ADMIN_GITHUB_ID_MISSING");
+    process.env.ADMIN_GITHUB_ID = '\"12345\"';
+    const invalid = await login();
+    assert.equal(invalid.status, 403);
+    assert.equal((await invalid.json()).code, "ADMIN_GITHUB_ID_INVALID");
+    process.env.ADMIN_GITHUB_ID = "12345";
     assert.equal(database.user.length, 0);
     assert.equal(database.account.length, 0);
     assert.equal(database.session.length, 0);
@@ -129,4 +141,44 @@ test("OAuth callback rejects an unallowed account before creating user/account/s
     if (previousId === undefined) delete process.env.ADMIN_GITHUB_ID;
     else process.env.ADMIN_GITHUB_ID = previousId;
   }
+});
+
+test("deployment configuration failures are distinct from an account mismatch", (t) => {
+  const warnings = t.mock.method(console, "warn", () => {});
+  const expectCode = (id: unknown, allowed: string, code: string) => {
+    assert.throws(
+      () => assertGithubIdentity(id, allowed),
+      (error: unknown) =>
+        (error as { body?: { code?: string } }).body?.code === code,
+    );
+  };
+  expectCode(12345, "", "ADMIN_GITHUB_ID_MISSING");
+  expectCode(12345, " \n", "ADMIN_GITHUB_ID_MISSING");
+  expectCode(12345, '\"12345\"', "ADMIN_GITHUB_ID_INVALID");
+  expectCode(12345, "github-username", "ADMIN_GITHUB_ID_INVALID");
+  expectCode(12346, "12345", "GITHUB_ACCOUNT_NOT_ALLOWED");
+  assert.equal(warnings.mock.callCount(), 5);
+  const diagnostic = warnings.mock.calls.at(-1)!.arguments;
+  assert.equal(diagnostic[0], "[portfolio-auth] github_identity_rejected");
+  assert.equal(diagnostic[1].configuredIdSuffix, "2345");
+  assert.equal(diagnostic[1].authenticatedIdSuffix, "2346");
+  assert.equal(JSON.stringify(diagnostic).includes("12345"), false);
+  assert.equal(JSON.stringify(diagnostic).includes("12346"), false);
+});
+
+test("surrounding deployment whitespace is normalized consistently without accepting other identities", (t) => {
+  t.mock.method(console, "warn", () => {});
+  assert.doesNotThrow(() => assertGithubIdentity(12345, " 12345\n"));
+  assert.equal(
+    isAdminAccount([{ providerId: "github", accountId: "12345" }], " 12345\n"),
+    true,
+  );
+  assert.throws(() => assertGithubIdentity(12346, " 12345\n"));
+  assert.equal(
+    isAdminAccount(
+      [{ providerId: "github", accountId: "github-username" }],
+      "github-username",
+    ),
+    false,
+  );
 });
