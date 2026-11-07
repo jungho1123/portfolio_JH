@@ -43,3 +43,8 @@ next-env.d.ts
 
 # Prisma Client
 /generated/prisma/
+
+/.next-e2e/
+/test-results/
+/playwright-report/
+/.cache/

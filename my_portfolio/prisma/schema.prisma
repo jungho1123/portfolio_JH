@@ -7,4 +7,183 @@ datasource db {
   provider = "postgresql"
 }
 
+enum UserRole {
+  MEMBER
+  ADMIN
+}
 
+enum ContentKind {
+  HOME
+  BLOG
+  PROJECT
+}
+
+enum PublicationState {
+  DRAFT
+  PUBLISHED
+  PRIVATE
+  TRASH
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          UserRole  @default(MEMBER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Content {
+  id               String           @id @default(cuid())
+  kind             ContentKind
+  state            PublicationState @default(DRAFT)
+  revision         Int              @default(0)
+  draftId          String?          @unique
+  publishedId      String?          @unique
+  firstPublishedAt DateTime?
+  lastPublishedAt  DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  draft            Revision?        @relation("CurrentDraft", fields: [draftId], references: [id], onDelete: SetNull)
+  published        Revision?        @relation("CurrentPublic", fields: [publishedId], references: [id], onDelete: SetNull)
+  versions         Revision[]       @relation("ContentVersions")
+  slugs            Slug[]
+
+  @@index([kind, state, firstPublishedAt, id])
+}
+
+model Revision {
+  id         String          @id @default(cuid())
+  contentId  String
+  data       Json
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  content    Content         @relation("ContentVersions", fields: [contentId], references: [id], onDelete: Cascade)
+  draftOf    Content?        @relation("CurrentDraft")
+  publicOf   Content?        @relation("CurrentPublic")
+  media      MediaUse[]
+  taxonomies RevisionTaxon[]
+
+  @@index([contentId])
+}
+
+model Slug {
+  id        String      @id @default(cuid())
+  kind      ContentKind
+  value     String
+  published Boolean     @default(false)
+  contentId String
+  content   Content     @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([kind, value])
+}
+
+model Taxon {
+  id         String          @id @default(cuid())
+  kind       ContentKind
+  type       String
+  name       String
+  normalized String
+  uses       RevisionTaxon[]
+
+  @@unique([kind, type, normalized])
+}
+
+model RevisionTaxon {
+  revisionId String
+  taxonId    String
+  revision   Revision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  taxon      Taxon    @relation(fields: [taxonId], references: [id], onDelete: Restrict)
+
+  @@id([revisionId, taxonId])
+  @@index([taxonId])
+}
+
+model Media {
+  id        String     @id @default(cuid())
+  pathname  String     @unique
+  name      String
+  mime      String
+  size      Int
+  alt       String     @default("")
+  status    String     @default("PENDING")
+  createdAt DateTime   @default(now())
+  uses      MediaUse[]
+}
+
+model MediaUse {
+  revisionId String
+  mediaId    String
+  revision   Revision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  media      Media    @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+
+  @@id([revisionId, mediaId])
+  @@index([mediaId])
+}
+
+model GithubCache {
+  username  String   @id
+  data      Json
+  fetchedAt DateTime
+  checkedAt DateTime
+}
+
+model CacheJob {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+}

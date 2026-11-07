@@ -1,75 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 개인 포트폴리오
 
-## Installed tooling
+한국어 포트폴리오·프로젝트·블로그와 GitHub 단일 관리자용 콘텐츠 관리 시스템입니다. [요구사항](Requirements.md)을 기준으로 공개본과 수정 초안을 분리합니다. 실제 이름·경력·프로젝트·이력서는 기본으로 등록하지 않습니다.
 
-Use pnpm (the version is pinned in `package.json`) to install dependencies:
+## 실행
+
+Node.js 22.19 이상과 `package.json`에 고정된 pnpm을 사용합니다.
 
 ```bash
 pnpm install
-pnpm lint
-```
-
-- Tailwind CSS 4 uses the existing Turbopack loader in `next.config.ts` and the import in `app/globals.css`.
-- ESLint uses the Next.js and TypeScript rules in `eslint.config.mjs`.
-- Prisma 7 reads the Next.js environment files, including `.env.local`, through `prisma.config.ts`. CLI commands prefer `DATABASE_URL_UNPOOLED` for direct connections and fall back to `DATABASE_URL`. The shared client in `lib/prisma.ts` uses `DATABASE_URL` with `@prisma/adapter-pg` and is generated in `generated/prisma`.
-- [Better Auth](https://better-auth.com/docs/installation) provides email/password authentication through the Prisma adapter. Server configuration is in `lib/auth.ts`, the React client is in `lib/auth-client.ts`, and the API is mounted at `/api/auth/[...all]`.
-
-## Authentication setup
-
-For a new checkout, copy `.env.example` to `.env.local`. Keep an existing `.env.local` and its database credentials. Set `DATABASE_URL`, `BETTER_AUTH_URL` (the application origin), and `BETTER_AUTH_SECRET` (a random secret of at least 32 characters). Generate a secret with:
-
-```bash
-openssl rand -base64 32
-```
-
-Apply the checked-in migration to your development database before signing up or signing in:
-
-```bash
-pnpm exec prisma migrate deploy
-pnpm exec prisma generate
-```
-
-For React components, import `authClient` from `@/lib/auth-client` and use `authClient.signUp.email({ name, email, password })`, `authClient.signIn.email({ email, password })`, `authClient.signOut()`, or `authClient.useSession()`. For server code, import `auth` from `@/lib/auth` and call `auth.api.getSession({ headers: await headers() })`, importing `headers` from `next/headers`.
-
-Authentication uses email and password only. OAuth providers and verification emails are not configured, and users can sign in without verifying their email. The `Account` model stores the password hash for the `credential` provider. OAuth token columns, `emailVerified`, and the `Verification` model remain because Better Auth validates its core schema.
-
-Roles are `GUEST` (no session), `MEMBER` (registered user), and `ADMIN`. `getRole(session)` from `@/lib/roles` returns the application role. Only `MEMBER` and `ADMIN` are stored in `User.role`; new users default to `MEMBER`. The role is included in server and React client session types, and client requests cannot choose or update it. Promote an administrator only through trusted server code or a database operation. Check the server session and role before allowing a restricted operation.
-
-Run the authentication policy checks with `pnpm test:auth`. They use an isolated in-memory database and do not access your configured PostgreSQL database.
-
-On deployment, configure `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL` with the deployed HTTPS origin. Keep secrets in environment variables and out of Git.
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
+cp .env.example .env.local  # 기존 .env.local이 있다면 덮어쓰지 마세요.
+pnpm db:generate
+pnpm db:deploy
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+DB·GitHub·비공개 Blob 설정은 [배포 안내](docs/deployment.md)를 참고하세요. 공개 화면은 `/`, 관리자는 `/admin`입니다. 인증·DB를 우회하는 운영용 데모 모드는 없습니다. 처음에는 빈 공개 화면을 표시하며, 관리자에서 콘텐츠를 작성하고 게시해야 표시됩니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm exec playwright install chromium
+pnpm test:e2e
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Linux에서 브라우저 공유 라이브러리가 없다면 `pnpm exec playwright install-deps chromium`으로 준비해야 합니다.
 
-## Learn More
+DB 통합 테스트와 E2E는 Docker의 `postgres:17`로 **별도 임시 DB**를 만들고 종료 시 제거합니다. 로컬/운영 DB에 테스트 콘텐츠를 쓰지 않습니다. E2E는 포트 3100·55440, 통합 테스트는 55439를 사용합니다. 테스트 세션은 임시 DB에만 생성하며 애플리케이션에는 테스트용 인증 우회 경로가 없습니다.
 
-To learn more about Next.js, take a look at the following resources:
+## 구성
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Next.js App Router, React, TypeScript, Tailwind CSS.
+- Prisma 7 + PostgreSQL(`@prisma/adapter-pg`), Vercel Marketplace의 Neon 연동.
+- Better Auth의 GitHub OAuth와 서버 측 GitHub 고유 ID 검증.
+- 비공개 Vercel Blob, 관리자 인증 직접 업로드와 파일 바이트 검증.
+- CodeMirror 6, 공통 GFM Markdown 렌더러, Shiki 코드 강조.
+- Radix UI 대화상자·메뉴, next-themes, lucide-react 및 브랜드용 react-icons.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+[데이터 구조](docs/data-model.md) · [운영 안내](docs/operations.md) · [설계 선택](docs/architecture.md) · [검증 결과](docs/verification.md)
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+디자인은 `app/globals.css`의 CSS 변수로 콘텐츠 폭·색상·글꼴·간격·테두리·모서리·전환 속도를 관리합니다. 공개 화면은 `components/public`, 관리자는 `components/admin`, 공통 검증은 `lib/schemas.ts`에 있습니다.
