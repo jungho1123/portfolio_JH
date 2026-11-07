@@ -1,5 +1,44 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Installed tooling
+
+Use pnpm (the version is pinned in `package.json`) to install dependencies:
+
+```bash
+pnpm install
+pnpm lint
+```
+
+- Tailwind CSS 4 uses the existing Turbopack loader in `next.config.ts` and the import in `app/globals.css`.
+- ESLint uses the Next.js and TypeScript rules in `eslint.config.mjs`.
+- Prisma 7 reads the Next.js environment files, including `.env.local`, through `prisma.config.ts`. CLI commands prefer `DATABASE_URL_UNPOOLED` for direct connections and fall back to `DATABASE_URL`. The shared client in `lib/prisma.ts` uses `DATABASE_URL` with `@prisma/adapter-pg` and is generated in `generated/prisma`.
+- [Better Auth](https://better-auth.com/docs/installation) provides email/password authentication through the Prisma adapter. Server configuration is in `lib/auth.ts`, the React client is in `lib/auth-client.ts`, and the API is mounted at `/api/auth/[...all]`.
+
+## Authentication setup
+
+For a new checkout, copy `.env.example` to `.env.local`. Keep an existing `.env.local` and its database credentials. Set `DATABASE_URL`, `BETTER_AUTH_URL` (the application origin), and `BETTER_AUTH_SECRET` (a random secret of at least 32 characters). Generate a secret with:
+
+```bash
+openssl rand -base64 32
+```
+
+Apply the checked-in migration to your development database before signing up or signing in:
+
+```bash
+pnpm exec prisma migrate deploy
+pnpm exec prisma generate
+```
+
+For React components, import `authClient` from `@/lib/auth-client` and use `authClient.signUp.email({ name, email, password })`, `authClient.signIn.email({ email, password })`, `authClient.signOut()`, or `authClient.useSession()`. For server code, import `auth` from `@/lib/auth` and call `auth.api.getSession({ headers: await headers() })`, importing `headers` from `next/headers`.
+
+Authentication uses email and password only. OAuth providers and verification emails are not configured, and users can sign in without verifying their email. The `Account` model stores the password hash for the `credential` provider. OAuth token columns, `emailVerified`, and the `Verification` model remain because Better Auth validates its core schema.
+
+Roles are `GUEST` (no session), `MEMBER` (registered user), and `ADMIN`. `getRole(session)` from `@/lib/roles` returns the application role. Only `MEMBER` and `ADMIN` are stored in `User.role`; new users default to `MEMBER`. The role is included in server and React client session types, and client requests cannot choose or update it. Promote an administrator only through trusted server code or a database operation. Check the server session and role before allowing a restricted operation.
+
+Run the authentication policy checks with `pnpm test:auth`. They use an isolated in-memory database and do not access your configured PostgreSQL database.
+
+On deployment, configure `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL` with the deployed HTTPS origin. Keep secrets in environment variables and out of Git.
+
 ## Getting Started
 
 First, run the development server:
