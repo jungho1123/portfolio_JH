@@ -4,6 +4,8 @@
 
 Vercel의 Root Directory를 `my_portfolio`로 설정합니다. 프레임워크는 Next.js, 패키지 관리자는 고정된 pnpm을 사용합니다. 개발·Preview·Production마다 다른 Neon DB/브랜치와 비공개 Blob 저장소를 연결합니다. Preview에 Production 자격증명을 복사하지 않습니다. 실제 운영 환경 변수를 로컬 테스트 서버에 상속하지 않도록 E2E 실행기는 모든 외부 자격증명을 테스트 값으로 교체합니다.
 
+`vercel.json`의 Build Command는 `pnpm run build`로 고정합니다. 이 스크립트는 `prisma generate && next build`를 실행하므로 설치 캐시나 `postinstall` 실행 여부에 의존하지 않고 Prisma Client를 생성합니다. `generated/prisma`는 Git에 포함하지 않으며, 생성 파일이 없는 배포에서도 Next.js 빌드 전에 만들어집니다. Prisma 생성 단계가 생략되는 `next build` 직접 실행으로 대체하지 마세요. [Prisma 빌드 안내](https://docs.prisma.io/docs/orm/v7/more/troubleshooting/nextjs)와 [Vercel Build Command 설정](https://vercel.com/docs/project-configuration/vercel-json#buildcommand)을 참고하세요.
+
 Neon은 [Vercel Marketplace Native Integration](https://vercel.com/marketplace/neon)으로 연결하면 Vercel에서 결제를 관리할 수 있습니다. 런타임 `DATABASE_URL`은 풀링 연결, `DATABASE_URL_UNPOOLED`는 Prisma 마이그레이션용 직접 연결을 사용합니다. 기존 `.env.local`은 보존하세요.
 
 ## 데이터베이스
