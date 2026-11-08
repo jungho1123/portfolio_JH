@@ -142,7 +142,7 @@ function GithubActivityView({
       <div className="activity-heading">
         <span className="small">
           <Github aria-hidden="true" size={15} />
-          GitHub 공개 기여
+          GitHub contributions
         </span>
         <a
           href={`https://github.com/${username}`}
