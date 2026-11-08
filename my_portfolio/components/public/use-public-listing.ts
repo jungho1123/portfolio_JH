@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type RefObject,
@@ -97,7 +98,9 @@ export function usePublicListing(
     [kind, sort, category, tagsKey, pageNumber],
   );
 
-  useEffect(() => {
+  // Activity tears down layout effects before hiding the list or resetting the
+  // document scroll. A passive cleanup can save the destination's position.
+  useLayoutEffect(() => {
     const scope: ListSession = {
       active: true,
       key: storageKey,
@@ -109,15 +112,23 @@ export function usePublicListing(
       restore: async () => {},
     };
     session.current = scope;
+    // DOM mutations during navigation can also shift scroll anchoring before
+    // cleanup, so persist the last position observed while the list was active.
+    let position = scrollY;
     const save = () => {
       // Strict Mode's initial cleanup must not replace a saved multi-page list with page one.
       if (!scope.ready) return;
       try {
         sessionStorage.setItem(
           storageKey,
-          JSON.stringify({ pages: scope.pages, scroll: scrollY }),
+          JSON.stringify({ pages: scope.pages, scroll: position }),
         );
       } catch {}
+    };
+    const onScroll = () => {
+      if (!scope.active || !scope.ready) return;
+      position = scrollY;
+      save();
     };
     scope.restore = async () => {
       if (!scope.active) return;
@@ -126,9 +137,17 @@ export function usePublicListing(
         return;
       }
       scope.restorePending = false;
-      if (scope.frame !== null) cancelAnimationFrame(scope.frame);
       const controller = new AbortController();
       scope.request = controller;
+      const complete = () => {
+        if (!scope.active || scope.request !== controller) return;
+        scope.request = null;
+        if (scope.restorePending) void scope.restore();
+        else
+          setLoadState((previous) =>
+            previous.status === "loading" ? { status: "idle" } : previous,
+          );
+      };
       setLoadState({ status: "loading", operation: "restore" });
       try {
         let saved: { pages?: number; scroll?: number } = {};
@@ -146,15 +165,18 @@ export function usePublicListing(
         }
         if (scope.active && scope.request === controller) {
           scope.pages = n;
-          scope.ready = true;
           setPage(result);
-          if (saved.scroll) {
-            if (scope.frame !== null) cancelAnimationFrame(scope.frame);
-            scope.frame = requestAnimationFrame(() => {
-              scope.frame = null;
-              if (scope.active) window.scrollTo(0, saved.scroll || 0);
-            });
-          }
+          // Keep the request locked until the restored DOM and scroll agree.
+          // An observer notification must not append a page or cancel this frame.
+          scope.frame = requestAnimationFrame(() => {
+            scope.frame = null;
+            if (!scope.active || scope.request !== controller) return;
+            if (typeof saved.scroll === "number")
+              window.scrollTo({ top: saved.scroll, behavior: "instant" });
+            position = scrollY;
+            scope.ready = true;
+            complete();
+          });
         }
       } catch (e) {
         if (scope.active && scope.request === controller)
@@ -165,14 +187,7 @@ export function usePublicListing(
               e instanceof Error ? e.message : "목록 복원에 실패했습니다.",
           });
       } finally {
-        if (scope.active && scope.request === controller) {
-          scope.request = null;
-          if (scope.restorePending) void scope.restore();
-          else
-            setLoadState((previous) =>
-              previous.status === "loading" ? { status: "idle" } : previous,
-            );
-        }
+        if (scope.frame === null) complete();
       }
     };
     void scope.restore();
@@ -186,7 +201,7 @@ export function usePublicListing(
     addEventListener("pagehide", save);
     addEventListener("pageshow", onPageShow);
     document.addEventListener("visibilitychange", onVisibility);
-    addEventListener("scroll", save, { passive: true });
+    addEventListener("scroll", onScroll, { passive: true });
     return () => {
       scope.active = false;
       scope.request?.abort();
@@ -195,7 +210,7 @@ export function usePublicListing(
       removeEventListener("pagehide", save);
       removeEventListener("pageshow", onPageShow);
       document.removeEventListener("visibilitychange", onVisibility);
-      removeEventListener("scroll", save);
+      removeEventListener("scroll", onScroll);
     };
   }, [storageKey, fetchPage]);
 
@@ -204,11 +219,11 @@ export function usePublicListing(
     if (
       !scope?.active ||
       scope.key !== storageKey ||
+      !scope.ready ||
       scope.request ||
       !page.nextCursor
     )
       return;
-    if (scope.frame !== null) cancelAnimationFrame(scope.frame);
     const controller = new AbortController();
     scope.request = controller;
     setLoadState({ status: "loading", operation: "more" });

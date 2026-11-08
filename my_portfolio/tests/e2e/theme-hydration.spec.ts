@@ -36,15 +36,17 @@ function collectHydrationErrors(page: Page) {
 }
 
 async function expectEditorTheme(page: Page, theme: "light" | "dark") {
+  // Cache Components keeps other routes' editors in hidden Activity trees.
+  // Multiple visible editors must still fail this assertion.
+  const editor = page.locator(".editor-input > div").filter({ visible: true });
+  await expect(editor).toHaveCount(1);
   await expect(page.locator("html")).toHaveClass(new RegExp(`\\b${theme}\\b`));
-  await expect(page.locator(".editor-input > div")).toHaveClass(
-    `cm-theme-${theme}`,
-  );
-  await expect(page.locator(".cm-editor")).toHaveCSS(
+  await expect(editor).toHaveClass(`cm-theme-${theme}`);
+  await expect(editor.locator(".cm-editor")).toHaveCSS(
     "background-color",
     theme === "dark" ? "rgb(40, 44, 52)" : "rgb(255, 255, 255)",
   );
-  await expect(page.locator(".cm-content")).toHaveAttribute(
+  await expect(editor.locator(".cm-content")).toHaveAttribute(
     "contenteditable",
     "true",
   );
@@ -83,7 +85,9 @@ for (const scenario of [
     for (const id of ids) {
       await test.step(`direct load and reload of ${id}`, async () => {
         await page.goto(`/admin/edit/${id}`);
-        await expect(page.locator(".cm-content")).toBeVisible();
+        await expect(
+          page.locator(".cm-content").filter({ visible: true }),
+        ).toBeVisible();
         expect(errors).toEqual([]);
         await expectEditorTheme(page, scenario.expected);
         await page.reload();
@@ -106,10 +110,24 @@ test("editor theme changes preserve input and follow system preferences after re
   expect(response.ok()).toBeTruthy();
   const created: AdminDocument = await response.json();
   // Enter through client navigation with no saved theme, then test SSR on reload.
-  await page.goto("/admin");
-  await page.locator(`a[href="/admin/edit/${created.id}"]`).click();
+  await page.goto("/admin/edit/home");
   await expectEditorTheme(page, "dark");
-  const input = page.locator(".cm-content");
+  const preservedEditor = await page
+    .locator(".editor-input > div")
+    .filter({ visible: true })
+    .elementHandle();
+  await page.getByRole("link", { name: "콘텐츠", exact: true }).click();
+  await page.locator(`a[href="/admin/edit/${created.id}"]`).click();
+  // CodeMirror cleans up its inner view when hidden; Activity keeps its wrapper.
+  await expect(page.locator(".editor-input > div")).toHaveCount(2);
+  await expect(
+    page.locator(".editor-input > div").filter({ visible: false }),
+  ).toHaveCount(1);
+  expect(await preservedEditor!.evaluate((node) => node.isConnected)).toBe(
+    true,
+  );
+  await expectEditorTheme(page, "dark");
+  const input = page.locator(".cm-content").filter({ visible: true });
   const inputNode = await input.elementHandle();
   const markdown = "## 테마 전환 후에도 유지할 본문";
   await input.fill(markdown);

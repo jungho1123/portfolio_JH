@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { createHmac } from "node:crypto";
 import { unzipSync, strFromU8 } from "fflate";
 import AxeBuilder from "@axe-core/playwright";
+import type { ListingPage } from "../../components/public/use-public-listing";
 const secret = "isolated-e2e-secret-never-use-in-production";
 function session(token = "fixture-admin-token") {
   return encodeURIComponent(
@@ -118,22 +119,91 @@ test("theme choice persists and mobile menu closes with visible section heading"
 test("lists paginate on server, filter in URL, and restore loaded list and scroll", async ({
   page,
 }) => {
+  const cards = page.locator("main article:visible");
+  const sentinel = page.locator(".load-more:visible");
+  const cursorRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/public/posts" && url.searchParams.has("cursor"))
+      cursorRequests.push(request.url());
+  });
+  const hydrated = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/public/posts?") && response.ok(),
+  );
   await page.goto("/blog");
-  await expect(page.locator("main article:visible")).toHaveCount(12);
-  await page.getByRole("button", { name: "더 보기", exact: true }).click();
-  await expect(page.locator("main article:visible")).toHaveCount(24);
-  const last = page
-    .locator("main article:visible")
-    .nth(15)
-    .locator(".card-title");
+  await hydrated;
+  await expect(sentinel.getByRole("status")).toHaveCount(0);
+  await expect(cards).toHaveCount(12);
+  const additional = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/public/posts?") &&
+      new URL(response.url()).searchParams.has("cursor") &&
+      response.ok(),
+  );
+  // Scrolling the button into view also triggers the real observer. Clicking
+  // after it finishes would request another page instead of just page two.
+  await sentinel.scrollIntoViewIfNeeded();
+  const secondResponse = await additional;
+  const secondPage: ListingPage = await secondResponse.json();
+  await expect(sentinel.getByRole("status")).toHaveCount(0);
+  await expect(cards).toHaveCount(24);
+  const addresses = await cards
+    .locator(".card-title")
+    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
+  expect(new Set(addresses).size).toBe(24);
+  const last = cards.nth(15).locator(".card-title");
   await last.scrollIntoViewIfNeeded();
   const title = await last.textContent();
+  const scroll = await page.evaluate(() => scrollY);
+  expect(scroll).toBeGreaterThan(200);
   await last.click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(title!);
+  // Activity cleanup must save the list's position before navigation resets it.
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(
+        sessionStorage.getItem('portfolio:list:["BLOG","newest","",[],1]') ||
+          "null",
+      ),
+    ),
+  ).toEqual({ pages: 2, scroll });
+  const restored = page.waitForResponse(
+    (response) => response.url() === secondResponse.url() && response.ok(),
+  );
   await page.getByRole("link", { name: "목록으로 돌아가기" }).click();
   await expect(page).toHaveURL(/\/blog$/);
-  await expect(page.locator("main article:visible")).toHaveCount(24);
-  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(200);
+  await restored;
+  await expect(sentinel.getByRole("status")).toHaveCount(0);
+  await expect(cards).toHaveCount(24);
+  expect(
+    await cards
+      .locator(".card-title")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href"))),
+  ).toEqual(addresses);
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(scroll);
+  expect(cursorRequests).toEqual([secondResponse.url(), secondResponse.url()]);
+
+  // The observer must still load the next page after restoration, without duplicates.
+  const next = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/public/posts" &&
+      new URL(response.url()).searchParams.get("cursor") ===
+        secondPage.nextCursor &&
+      response.ok(),
+  );
+  await sentinel.scrollIntoViewIfNeeded();
+  const finalPage: ListingPage = await (await next).json();
+  await expect(sentinel.getByRole("status")).toHaveCount(0);
+  const expected = addresses.concat(
+    finalPage.items.map((post) => `/blog/${post.data.slug}`),
+  );
+  await expect(cards).toHaveCount(expected.length);
+  const finalAddresses = await cards
+    .locator(".card-title")
+    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
+  expect(finalAddresses).toEqual(expected);
+  expect(new Set(finalAddresses).size).toBe(expected.length);
   await page.locator("#sort").selectOption("oldest");
   await expect(page).toHaveURL(/sort=oldest/);
   await page.getByRole("button", { name: "테스트 태그", exact: true }).click();
