@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, ArrowUpRight, Search } from "lucide-react";
-import { api } from "@/components/admin/shared";
+import { api } from "@/lib/admin-api";
 import type { AdminDocument } from "@/lib/admin-types";
 import { formatDate, type PostData } from "@/lib/schemas";
 export function Dashboard() {

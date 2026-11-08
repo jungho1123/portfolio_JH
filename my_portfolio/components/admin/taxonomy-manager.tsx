@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api, Confirm, Field } from "@/components/admin/shared";
+import { Confirm, Field } from "@/components/admin/shared";
+import { api } from "@/lib/admin-api";
 import type { TaxonItem } from "@/lib/admin-types";
 function TaxonRow({
   item,

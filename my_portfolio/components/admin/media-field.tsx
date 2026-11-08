@@ -1,28 +1,10 @@
 /* eslint-disable @next/next/no-img-element -- Access-checked media routes resize images without a public optimizer cache. */
 "use client";
-import { useEffect, useState } from "react";
-import { upload } from "@vercel/blob/client";
+import { useEffect, useRef, useState } from "react";
+import { uploadFile } from "@/lib/media-upload";
 import { Upload } from "lucide-react";
-import { api } from "@/components/admin/shared";
+import { api } from "@/lib/admin-api";
 import type { MediaItem } from "@/lib/admin-types";
-export async function uploadFile(file: File) {
-  const pending = await api<MediaItem>("/api/admin/media", "POST", {
-    name: file.name,
-    mime: file.type,
-    size: file.size,
-  });
-  await upload(pending.pathname, file, {
-    access: "private",
-    contentType: file.type,
-    handleUploadUrl: "/api/admin/upload",
-    clientPayload: JSON.stringify({ id: pending.id }),
-    multipart: file.size > 5_000_000,
-  });
-  return api<MediaItem>("/api/admin/media", "POST", {
-    action: "verify",
-    id: pending.id,
-  });
-}
 export function MediaField({
   label,
   value,
@@ -38,11 +20,44 @@ export function MediaField({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState("");
+  const session = useRef({ active: false });
   useEffect(() => {
+    const scope = { active: true };
+    session.current = scope;
     api<MediaItem[]>("/api/admin/media")
-      .then(setMedia)
-      .catch((e) => setError(e.message));
+      .then((items) => {
+        if (scope.active) setMedia(items);
+      })
+      .catch((e) => {
+        if (scope.active) setError(e.message);
+      });
+    return () => {
+      scope.active = false;
+      setBusy(false);
+    };
   }, []);
+  async function selectMedia(load: () => Promise<MediaItem>) {
+    const scope = session.current;
+    setBusy(true);
+    setError("");
+    try {
+      const media = await load();
+      if (!scope.active) return;
+      setMedia((previous) => [
+        media,
+        ...previous.filter((item) => item.id !== media.id),
+      ]);
+      onChange(media.id);
+      setUrl("");
+    } catch (error) {
+      if (scope.active)
+        setError(
+          error instanceof Error ? error.message : "파일 처리에 실패했습니다.",
+        );
+    } finally {
+      if (scope.active) setBusy(false);
+    }
+  }
   const valid = media.filter(
     (m) =>
       m.status === "READY" &&
@@ -64,6 +79,7 @@ export function MediaField({
       <select
         id={`media-${label}`}
         value={value || ""}
+        disabled={busy}
         onChange={(e) => onChange(e.target.value || null)}
       >
         <option value="">선택 안 함</option>
@@ -88,17 +104,7 @@ export function MediaField({
             const file = e.target.files?.[0];
             if (!file) return;
             e.target.value = "";
-            setBusy(true);
-            setError("");
-            try {
-              const m = await uploadFile(file);
-              setMedia((prev) => [m, ...prev]);
-              onChange(m.id);
-            } catch (e) {
-              setError((e as Error).message);
-            } finally {
-              setBusy(false);
-            }
+            await selectMedia(() => uploadFile(file));
           }}
         />
       </label>
@@ -108,31 +114,21 @@ export function MediaField({
             aria-label={`${label} 외부 이미지 주소`}
             placeholder="https://… 외부 이미지 가져오기"
             value={url}
+            disabled={busy}
             onChange={(e) => setUrl(e.target.value)}
           />
           <button
             type="button"
             className="button secondary"
             disabled={busy || !url}
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              try {
-                const m = await api<MediaItem>("/api/admin/media", "POST", {
+            onClick={() =>
+              void selectMedia(() =>
+                api<MediaItem>("/api/admin/media", "POST", {
                   action: "import",
                   url,
-                });
-                setMedia((prev) => [m, ...prev]);
-                onChange(m.id);
-                setUrl("");
-              } catch (e) {
-                setError(
-                  `${(e as Error).message} 직접 업로드로 다시 시도할 수 있습니다.`,
-                );
-              } finally {
-                setBusy(false);
-              }
-            }}
+                }),
+              )
+            }
           >
             가져오기
           </button>

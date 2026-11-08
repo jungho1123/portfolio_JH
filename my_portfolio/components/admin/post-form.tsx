@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
-import { Field, api } from "@/components/admin/shared";
+import { useEffect, useRef, useState } from "react";
+import { Field } from "@/components/admin/shared";
+import { api } from "@/lib/admin-api";
 import { MediaField } from "@/components/admin/media-field";
 import { MarkdownEditor } from "@/components/admin/markdown-editor";
 import type { PostData, HomeData, PostKind } from "@/lib/schemas";
-import type { TaxonItem, AdminDocument } from "@/lib/admin-types";
+import type { TaxonItem, AdminDocument, DataChange } from "@/lib/admin-types";
 export function PostForm({
   kind,
   data,
@@ -12,23 +13,46 @@ export function PostForm({
 }: {
   kind: PostKind;
   data: PostData;
-  onChange: (data: PostData) => void;
+  onChange: DataChange<PostData>;
 }) {
   const [taxons, setTaxons] = useState<TaxonItem[]>([]);
   const [stack, setStack] = useState<HomeData["stack"]>([]);
   const [newName, setNewName] = useState("");
   const [taxonType, setTaxonType] = useState<"CATEGORY" | "TAG">("TAG");
   const [error, setError] = useState("");
-  const set = <K extends keyof PostData>(key: K, value: PostData[K]) =>
-    onChange({ ...data, [key]: value });
+  const [creating, setCreating] = useState(false);
+  const session = useRef({ active: false });
+  const set = <K extends keyof PostData>(
+    key: K,
+    value: PostData[K] | ((current: PostData[K]) => PostData[K]),
+  ) =>
+    onChange((current) => ({
+      ...current,
+      [key]: typeof value === "function" ? value(current[key]) : value,
+    }));
   useEffect(() => {
+    const scope = { active: true };
+    session.current = scope;
     api<TaxonItem[]>("/api/admin/taxonomy")
-      .then(setTaxons)
-      .catch((e) => setError(e.message));
+      .then((items) => {
+        if (scope.active) setTaxons(items);
+      })
+      .catch((e) => {
+        if (scope.active) setError(e.message);
+      });
     if (kind === "PROJECT")
       api<AdminDocument>("/api/admin/content/home")
-        .then((h) => setStack((h.published?.data as HomeData)?.stack || []))
-        .catch((e) => setError(e.message));
+        .then((h) => {
+          if (scope.active && h.kind === "HOME")
+            setStack(h.published?.data.stack || []);
+        })
+        .catch((e) => {
+          if (scope.active) setError(e.message);
+        });
+    return () => {
+      scope.active = false;
+      setCreating(false);
+    };
   }, [kind]);
   return (
     <>
@@ -129,6 +153,7 @@ export function PostForm({
         <div className="inline-form">
           <select
             aria-label="새 분류 유형"
+            disabled={creating}
             value={taxonType}
             onChange={(e) => setTaxonType(e.target.value as "TAG" | "CATEGORY")}
           >
@@ -137,27 +162,34 @@ export function PostForm({
           </select>
           <input
             aria-label="새 분류 이름"
+            disabled={creating}
             placeholder="새 분류 이름"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
           />
           <button
             className="button secondary"
-            disabled={!newName.trim()}
+            disabled={creating || !newName.trim()}
             onClick={async () => {
+              const scope = session.current;
+              setCreating(true);
               try {
                 const t = await api<TaxonItem>("/api/admin/taxonomy", "POST", {
                   kind,
                   type: taxonType,
                   name: newName,
                 });
+                if (!scope.active) return;
                 setTaxons((prev) => [...prev, t]);
-                if (taxonType === "TAG") set("tagIds", [...data.tagIds, t.id]);
+                if (taxonType === "TAG")
+                  set("tagIds", (ids) => [...new Set([...ids, t.id])]);
                 else set("categoryId", t.id);
                 setNewName("");
                 setError("");
               } catch (e) {
-                setError((e as Error).message);
+                if (scope.active) setError((e as Error).message);
+              } finally {
+                if (scope.active) setCreating(false);
               }
             }}
           >

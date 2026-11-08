@@ -9,7 +9,7 @@ async function Content({ params }: { params: Promise<{ id: string }> }) {
   const content = await adminContent((await params).id);
   return (
     <Editor
-      key={content.id}
+      key={JSON.stringify([user.id, content.id])}
       initial={JSON.parse(JSON.stringify(content))}
       accountId={user.id}
     />

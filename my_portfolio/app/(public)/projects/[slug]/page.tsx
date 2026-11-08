@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import { DetailPage, postMetadata } from "@/components/public/pages";
+import { DetailPage } from "@/components/public/pages";
+import { postMetadata } from "@/lib/public-metadata";
 export async function generateMetadata({
   params,
 }: {

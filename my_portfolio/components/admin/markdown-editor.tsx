@@ -1,18 +1,28 @@
 "use client";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { useTheme } from "next-themes";
 import { Markdown } from "@/components/public/markdown";
 import { MediaField } from "@/components/admin/media-field";
+import type { DataChange } from "@/lib/admin-types";
+
+const emptySubscribe = () => () => {};
+
 export function MarkdownEditor({
   value,
   onChange,
 }: {
   value: string;
-  onChange: (value: string) => void;
+  onChange: DataChange<string>;
 }) {
   const { resolvedTheme } = useTheme();
+  // Match the server's theme during hydration before applying browser preferences.
+  const hydrated = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
   const [tab, setTab] = useState("write");
   const [showUpload, setShowUpload] = useState(false);
   return (
@@ -49,7 +59,9 @@ export function MarkdownEditor({
           value={null}
           onChange={(id) => {
             if (id) {
-              onChange(`${value}\n\n![이미지 설명](/media/${id})\n`);
+              onChange(
+                (current) => `${current}\n\n![이미지 설명](/media/${id})\n`,
+              );
               setShowUpload(false);
             }
           }}
@@ -60,9 +72,9 @@ export function MarkdownEditor({
           <CodeMirror
             value={value}
             height="540px"
-            theme={resolvedTheme === "dark" ? "dark" : "light"}
+            theme={hydrated && resolvedTheme === "dark" ? "dark" : "light"}
             extensions={[markdown()]}
-            onChange={onChange}
+            onChange={(value) => onChange(() => value)}
             basicSetup={{ lineNumbers: true, foldGutter: false }}
             aria-label="Markdown 본문 입력"
           />

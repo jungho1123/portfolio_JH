@@ -2,26 +2,6 @@
 import { useState, useId, cloneElement, isValidElement } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-export async function api<T>(
-  url: string,
-  method = "GET",
-  body?: unknown,
-): Promise<T> {
-  const response = await fetch(url, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : {},
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    cache: "no-store",
-  });
-  const result = await response.json();
-  if (!response.ok)
-    throw Object.assign(new Error(result.error || "요청에 실패했습니다."), {
-      status: response.status,
-      code: result.code,
-      content: result.content,
-    });
-  return result;
-}
 export function Field({
   label,
   children,

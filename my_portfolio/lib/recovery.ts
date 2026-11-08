@@ -48,8 +48,13 @@ export async function readRecovery(
     tx.oncomplete = () => db.close();
   });
 }
-export async function writeRecovery(value: Recovery) {
+export async function writeRecovery(value: Recovery, isActive = () => true) {
   const db = await open();
+  // Opening the database can outlive the editor that requested this mutation.
+  if (!isActive()) {
+    db.close();
+    return;
+  }
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("drafts", "readwrite");
     tx.objectStore("drafts").put(value);
@@ -67,8 +72,13 @@ export async function removeRecovery(
   accountId: string,
   contentId: string,
   key = recoveryKey(accountId, contentId),
+  isActive = () => true,
 ) {
   const db = await open();
+  if (!isActive()) {
+    db.close();
+    return;
+  }
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("drafts", "readwrite");
     tx.objectStore("drafts").delete(key);

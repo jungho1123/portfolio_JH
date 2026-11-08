@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Upload, FileText } from "lucide-react";
-import { api, Confirm, Field } from "@/components/admin/shared";
-import { uploadFile } from "@/components/admin/media-field";
+import { Confirm, Field } from "@/components/admin/shared";
+import { api } from "@/lib/admin-api";
+import { uploadFile } from "@/lib/media-upload";
 import type { MediaItem } from "@/lib/admin-types";
 function MediaRow({
   media,

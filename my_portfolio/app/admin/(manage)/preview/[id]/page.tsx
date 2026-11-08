@@ -5,7 +5,7 @@ import { adminContent } from "@/lib/content";
 import { homePosts } from "@/lib/public-data";
 import { homeSchema, postSchema } from "@/lib/schemas";
 import { HomeView } from "@/components/public/home";
-import { DetailView } from "@/components/public/pages";
+import { DetailView } from "@/components/public/detail-view";
 import { db } from "@/lib/prisma";
 async function Preview({ params }: { params: Promise<{ id: string }> }) {
   if (!(await currentAdmin())) redirect("/admin?expired=1");

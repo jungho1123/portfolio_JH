@@ -1,15 +1,34 @@
-import type { HomeData, PostData } from "@/lib/schemas";
-export type AdminDocument = {
-  id: string;
-  kind: "HOME" | "BLOG" | "PROJECT";
-  state: "DRAFT" | "PUBLISHED" | "PRIVATE" | "TRASH";
-  revision: number;
-  createdAt: string;
-  firstPublishedAt: string | null;
-  lastPublishedAt: string | null;
-  draft: { data: HomeData | PostData; updatedAt: string } | null;
-  published: { data: HomeData | PostData; updatedAt: string } | null;
+import { z } from "zod";
+import { homeSchema, postSchema } from "@/lib/schemas";
+
+const documentFields = {
+  id: z.string(),
+  state: z.enum(["DRAFT", "PUBLISHED", "PRIVATE", "TRASH"]),
+  revision: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  firstPublishedAt: z.string().nullable(),
+  lastPublishedAt: z.string().nullable(),
 };
+const homeRevision = z.object({ data: homeSchema, updatedAt: z.string() });
+const postRevision = z.object({ data: postSchema, updatedAt: z.string() });
+export const adminDocumentSchema = z.discriminatedUnion("kind", [
+  z.object({
+    ...documentFields,
+    kind: z.literal("HOME"),
+    draft: homeRevision.nullable(),
+    published: homeRevision.nullable(),
+  }),
+  z.object({
+    ...documentFields,
+    kind: z.enum(["BLOG", "PROJECT"]),
+    draft: postRevision.nullable(),
+    published: postRevision.nullable(),
+  }),
+]);
+export type AdminDocument = z.infer<typeof adminDocumentSchema>;
+export type ContentAction =
+  "publish" | "discard" | "private" | "trash" | "restore" | "delete";
+export type DataChange<T> = (update: (current: T) => T) => void;
 export type MediaItem = {
   id: string;
   name: string;

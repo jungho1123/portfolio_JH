@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ArrowUp, ArrowDown, Plus, Trash2 } from "lucide-react";
-import { Field, api } from "@/components/admin/shared";
+import { Field } from "@/components/admin/shared";
+import { api } from "@/lib/admin-api";
 import { MediaField } from "@/components/admin/media-field";
 import { MarkdownEditor } from "@/components/admin/markdown-editor";
-import type { HomeData, PostData } from "@/lib/schemas";
-import type { AdminDocument } from "@/lib/admin-types";
+import type { HomeData } from "@/lib/schemas";
+import type { AdminDocument, DataChange } from "@/lib/admin-types";
 function reorder<T>(items: T[], index: number, direction: number) {
   const next = [...items];
   const target = index + direction;
@@ -53,17 +54,33 @@ export function HomeForm({
   onChange,
 }: {
   data: HomeData;
-  onChange: (data: HomeData) => void;
+  onChange: DataChange<HomeData>;
 }) {
-  const [projects, setProjects] = useState<AdminDocument[]>([]);
+  const [projects, setProjects] = useState<
+    Extract<AdminDocument, { kind: "BLOG" | "PROJECT" }>[]
+  >([]);
   const [error, setError] = useState("");
   useEffect(() => {
+    let active = true;
     api<AdminDocument[]>("/api/admin/content?kind=PROJECT")
-      .then(setProjects)
-      .catch((e) => setError(e.message));
+      .then((items) => {
+        if (active) setProjects(items.filter((item) => item.kind !== "HOME"));
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
-  const set = <K extends keyof HomeData>(key: K, value: HomeData[K]) =>
-    onChange({ ...data, [key]: value });
+  const set = <K extends keyof HomeData>(
+    key: K,
+    value: HomeData[K] | ((current: HomeData[K]) => HomeData[K]),
+  ) =>
+    onChange((current) => ({
+      ...current,
+      [key]: typeof value === "function" ? value(current[key]) : value,
+    }));
   return (
     <>
       <div className="form-panel">
@@ -364,8 +381,8 @@ export function HomeForm({
           return (
             <div className="featured-row" key={id}>
               <span>
-                {(project?.draft?.data as PostData)?.title ||
-                  (project?.published?.data as PostData)?.title ||
+                {project?.draft?.data.title ||
+                  project?.published?.data.title ||
                   "삭제된 프로젝트"}
                 <small className="muted"> · {project?.state || "없음"}</small>
               </span>
@@ -400,7 +417,7 @@ export function HomeForm({
             )
             .map((p) => (
               <option key={p.id} value={p.id}>
-                {(p.draft?.data as PostData)?.title || "제목 없는 프로젝트"}
+                {p.draft?.data.title || "제목 없는 프로젝트"}
               </option>
             ))}
         </select>
