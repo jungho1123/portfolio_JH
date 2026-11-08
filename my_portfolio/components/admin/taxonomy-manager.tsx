@@ -1,32 +1,42 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Confirm, Field } from "@/components/admin/shared";
+import { errorMessage } from "@/lib/error-message";
+import { useAdminCollection } from "@/components/admin/use-admin-collection";
 import { api } from "@/lib/admin-api";
 import type { TaxonItem } from "@/lib/admin-types";
-function TaxonRow({
-  item,
-  all,
-  reload,
-}: {
+function TaxonRow(props: {
   item: TaxonItem;
   all: TaxonItem[];
   reload: () => Promise<void>;
 }) {
-  const [name, setName] = useState(item.name);
+  const session = useRef({ active: false, request: 0 });
+  useEffect(() => {
+    const scope = { active: true, request: 0 };
+    session.current = scope;
+    return () => {
+      scope.active = false;
+    };
+  }, [props.item.id]);
+  const [name, setName] = useState(props.item.name);
   const [target, setTarget] = useState("");
   const [error, setError] = useState("");
   async function act(action: string) {
+    const scope = session.current;
+    const request = ++scope.request;
+    const ownsRequest = () => scope.active && request === scope.request;
     try {
       await api("/api/admin/taxonomy", "PATCH", {
-        id: item.id,
+        id: props.item.id,
         action,
         name,
         targetId: target || undefined,
       });
-      await reload();
-      setError("");
+      if (!ownsRequest()) return;
+      await props.reload();
+      if (ownsRequest()) setError("");
     } catch (e) {
-      setError((e as Error).message);
+      if (ownsRequest()) setError(errorMessage(e));
       throw e;
     }
   }
@@ -34,12 +44,13 @@ function TaxonRow({
     <div className="taxonomy-row">
       <div>
         <p className="eyebrow">
-          {item.kind} · {item.type === "CATEGORY" ? "카테고리" : "태그"} ·{" "}
-          {item.count}개 콘텐츠
+          {props.item.kind} ·{" "}
+          {props.item.type === "CATEGORY" ? "카테고리" : "태그"} ·{" "}
+          {props.item.count}개 콘텐츠
         </p>
         <div className="inline-form">
           <input
-            aria-label={`${item.name} 이름 수정`}
+            aria-label={`${props.item.name} 이름 수정`}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -53,17 +64,17 @@ function TaxonRow({
       </div>
       <div>
         <select
-          aria-label={`${item.name} 병합·재배정 대상`}
+          aria-label={`${props.item.name} 병합·재배정 대상`}
           value={target}
           onChange={(e) => setTarget(e.target.value)}
         >
           <option value="">병합·재배정 대상 선택</option>
-          {all
+          {props.all
             .filter(
               (t) =>
-                t.id !== item.id &&
-                t.kind === item.kind &&
-                t.type === item.type,
+                t.id !== props.item.id &&
+                t.kind === props.item.kind &&
+                t.type === props.item.type,
             )
             .map((t) => (
               <option key={t.id} value={t.id}>
@@ -75,7 +86,7 @@ function TaxonRow({
           <Confirm
             label="병합"
             title="분류를 병합할까요?"
-            description={`${item.count}개 콘텐츠의 연결을 선택한 분류로 옮깁니다. 공개본과 초안 모두 변경됩니다.`}
+            description={`${props.item.count}개 콘텐츠의 연결을 선택한 분류로 옮깁니다. 공개본과 초안 모두 변경됩니다.`}
             disabled={!target}
             onConfirm={() => act("merge")}
           />
@@ -83,9 +94,9 @@ function TaxonRow({
             label="삭제"
             title="분류를 삭제할까요?"
             description={
-              item.type === "CATEGORY"
-                ? `${item.count}개 콘텐츠에서 사용 중이면 선택한 카테고리로 재배정합니다.`
-                : `${item.count}개 콘텐츠에서 태그 연결을 해제합니다.`
+              props.item.type === "CATEGORY"
+                ? `${props.item.count}개 콘텐츠에서 사용 중이면 선택한 카테고리로 재배정합니다.`
+                : `${props.item.count}개 콘텐츠에서 태그 연결을 해제합니다.`
             }
             danger
             onConfirm={() => act("delete")}
@@ -101,21 +112,23 @@ function TaxonRow({
   );
 }
 export function TaxonomyManager() {
-  const [items, setItems] = useState<TaxonItem[]>([]);
+  const { items, error, loading, setError, reload, session } =
+    useAdminCollection<TaxonItem>("/api/admin/taxonomy");
   const [kind, setKind] = useState("BLOG");
   const [type, setType] = useState("TAG");
   const [name, setName] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  async function reload() {
-    setItems(await api<TaxonItem[]>("/api/admin/taxonomy"));
+  async function createTaxon() {
+    const scope = session.current;
+    try {
+      await api("/api/admin/taxonomy", "POST", { kind, type, name });
+      if (!scope.active) return;
+      setName("");
+      await reload();
+      if (scope.active) setError("");
+    } catch (error) {
+      if (scope.active) setError(errorMessage(error));
+    }
   }
-  useEffect(() => {
-    api<TaxonItem[]>("/api/admin/taxonomy")
-      .then(setItems)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
   return (
     <>
       <div className="admin-page-heading">
@@ -145,16 +158,7 @@ export function TaxonomyManager() {
           <button
             className="button"
             disabled={!name.trim()}
-            onClick={async () => {
-              try {
-                await api("/api/admin/taxonomy", "POST", { kind, type, name });
-                setName("");
-                await reload();
-                setError("");
-              } catch (e) {
-                setError((e as Error).message);
-              }
-            }}
+            onClick={createTaxon}
           >
             추가
           </button>

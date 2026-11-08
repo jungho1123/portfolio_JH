@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useEffectEvent, useRef, useState } from "react";
 import {
   readRecovery,
   writeRecovery,
@@ -9,100 +9,85 @@ import {
 import type { HomeData, PostData } from "@/lib/schemas";
 
 type Data = HomeData | PostData;
-type EditorRecovery = {
-  candidate: Recovery | null;
-  persist: (data: Data, revision: number) => void;
-  clear: () => Promise<void>;
-  consume: (candidate: Recovery) => void;
-  dismiss: () => void;
-};
 
-// Storage never owns the editable data or server revision.
+// Storage owns candidates and operation ordering, never editable document data.
 export function useEditorRecovery(
   accountId: string,
   contentId: string,
   serverData: unknown,
   onError: (message: string) => void,
-): EditorRecovery {
+) {
   const [candidate, setCandidate] = useState<Recovery | null>(null);
   const session = useRef({ active: false });
   const operations = useRef<Promise<void>>(Promise.resolve());
   const edits = useRef(0);
-  useEffect(() => {
+  const readServerData = useEffectEvent(() => serverData);
+  useLayoutEffect(() => {
     const scope = { active: true };
     session.current = scope;
+    const generation = edits.current;
+    // Activity already retains local input. Only a fresh instance needs a candidate.
+    if (generation === 0)
+      void readRecovery(accountId, contentId, readServerData())
+        .then((value) => {
+          if (scope.active && generation === edits.current)
+            setCandidate(value ?? null);
+        })
+        .catch(() => {});
     return () => {
       scope.active = false;
     };
   }, [accountId, contentId]);
-  useEffect(() => {
-    let active = true;
-    const generation = edits.current;
-    void readRecovery(accountId, contentId, serverData)
-      .then((value) => {
-        if (active && generation === edits.current && value)
-          setCandidate(value);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
+
+  function enqueue(operation: (isActive: () => boolean) => Promise<void>) {
+    const scope = session.current;
+    const task = operations.current.then(() => {
+      if (scope.active) return operation(() => scope.active);
+    });
+    operations.current = task.catch(() => {});
+    return task;
+  }
+  function persist(data: Data, revision: number, generation: number) {
+    edits.current = generation;
+    const scope = session.current;
+    const value: Recovery<Data> = {
+      key: recoveryKey(accountId, contentId),
+      accountId,
+      contentId,
+      baseRevision: revision,
+      data,
+      updatedAt: new Date().toISOString(),
     };
-  }, [accountId, contentId, serverData]);
-  const enqueue = useCallback(
-    (operation: (isActive: () => boolean) => Promise<void>) => {
-      const scope = session.current;
-      const task = operations.current.then(() => {
-        if (scope.active) return operation(() => scope.active);
-      });
-      operations.current = task.catch(() => {});
-      return task;
-    },
-    [],
-  );
-  const persist = useCallback(
-    (data: Data, revision: number) => {
-      edits.current++;
-      const scope = session.current;
-      const value: Recovery<Data> = {
-        key: recoveryKey(accountId, contentId),
+    void enqueue((isActive) => writeRecovery(value, isActive)).catch(() => {
+      if (scope.active)
+        onError(
+          "기기 임시복구를 사용할 수 없습니다. 서버 저장 상태를 확인하세요.",
+        );
+    });
+  }
+  function clear(generation: number) {
+    return enqueue((isActive) =>
+      removeRecovery(
         accountId,
         contentId,
-        baseRevision: revision,
-        data,
-        updatedAt: new Date().toISOString(),
-      };
-      void enqueue((isActive) => writeRecovery(value, isActive)).catch(() => {
-        if (scope.active)
-          onError(
-            "기기 임시복구를 사용할 수 없습니다. 서버 저장 상태를 확인하세요.",
-          );
-      });
-    },
-    [accountId, contentId, enqueue, onError],
-  );
-  const clear = useCallback(
-    () =>
-      enqueue((isActive) =>
-        removeRecovery(accountId, contentId, undefined, isActive),
+        undefined,
+        () => isActive() && edits.current <= generation,
       ),
-    [accountId, contentId, enqueue],
-  );
-  const consume = useCallback(
-    (value: Recovery) => {
-      setCandidate(null);
-      if (value.key !== recoveryKey(accountId, contentId))
-        void enqueue((isActive) =>
-          removeRecovery(accountId, contentId, value.key, isActive),
-        ).catch(() => {});
-    },
-    [accountId, contentId, enqueue],
-  );
-  const dismiss = () => {
+    );
+  }
+  function consume(value: Recovery) {
+    setCandidate(null);
+    if (value.key !== recoveryKey(accountId, contentId))
+      void enqueue((isActive) =>
+        removeRecovery(accountId, contentId, value.key, isActive),
+      ).catch(() => {});
+  }
+  function dismiss() {
     if (candidate)
       void enqueue((isActive) =>
         removeRecovery(accountId, contentId, candidate.key, isActive),
       ).catch(() => {});
     setCandidate(null);
-  };
+  }
   return { candidate, persist, clear, consume, dismiss };
 }

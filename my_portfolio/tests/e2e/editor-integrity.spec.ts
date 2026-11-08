@@ -423,7 +423,7 @@ test("a delayed IndexedDB open from an unmounted editor cannot overwrite its nex
   await expect(page.getByText("저장 완료", { exact: true })).toBeVisible();
 });
 
-test("an Activity-preserved editor releases old action locks when returning to the same document", async ({
+test("an Activity-preserved editor settles old action locks before resuming writes", async ({
   page,
 }) => {
   const initial = await createDocument(page);
@@ -443,14 +443,15 @@ test("an Activity-preserved editor releases old action locks when returning to t
     await arrived.promise;
     await page.getByRole("link", { name: "콘텐츠", exact: true }).click();
     await page.locator(`a[href="/admin/edit/${initial.id}"]`).click();
-    await expect(
-      page.getByRole("button", { name: "수정사항 게시" }),
-    ).toBeEnabled();
+    await expect(page.getByRole("button", { name: "처리 중…" })).toBeDisabled();
     await page
       .getByLabel("제목", { exact: true })
       .fill("복귀한 편집기의 최신 입력");
-    await expect(page.getByText("저장 완료", { exact: true })).toBeVisible();
     release.resolve();
+    await expect(page.getByText("저장 완료", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "수정사항 게시" }),
+    ).toBeEnabled();
     await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
     expect((await fetchDocument(page, initial.id)).draft!.data).toMatchObject({
       title: "복귀한 편집기의 최신 입력",

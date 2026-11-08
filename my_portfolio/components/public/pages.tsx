@@ -12,17 +12,14 @@ import type { PostKind } from "@/lib/schemas";
 import { Listing } from "@/components/public/listing";
 import { DetailView } from "@/components/public/detail-view";
 export type Search = Promise<Record<string, string | string[] | undefined>>;
-export async function ListPage({
-  kind,
-  searchParams,
-}: {
+export async function ListPage(props: {
   kind: PostKind;
   searchParams: Search;
 }) {
   await connection();
   let filters;
   try {
-    filters = filtersFromRecord(await searchParams);
+    filters = filtersFromRecord(await props.searchParams);
   } catch {
     return (
       <div className="empty-state">
@@ -30,7 +27,7 @@ export async function ListPage({
         <p>유효하지 않은 정렬 또는 필터입니다.</p>
         <Link
           className="button"
-          href={kind === "PROJECT" ? "/projects" : "/blog"}
+          href={props.kind === "PROJECT" ? "/projects" : "/blog"}
         >
           필터 초기화
         </Link>
@@ -38,30 +35,30 @@ export async function ListPage({
     );
   }
   const [initial, taxons] = await Promise.all([
-    publicList(kind, filters),
-    publicTaxons(kind),
+    publicList(props.kind, filters),
+    publicTaxons(props.kind),
   ]);
   return (
     <>
       <div className="page-intro">
         <p className="eyebrow">
-          {kind === "PROJECT"
+          {props.kind === "PROJECT"
             ? "SELECTED WORK & EXPERIMENTS"
             : "NOTES & THOUGHTS"}
         </p>
         <h1>
-          {kind === "PROJECT" ? "Projects" : "Blog"}
+          {props.kind === "PROJECT" ? "Projects" : "Blog"}
           <span className="accent">.</span>
         </h1>
         <p>
-          {kind === "PROJECT"
+          {props.kind === "PROJECT"
             ? "문제를 발견하고, 해결해 나간 과정입니다."
             : "개발하며 배우고 생각한 것을 기록합니다."}
         </p>
       </div>
       <Listing
         key={JSON.stringify(filters)}
-        kind={kind}
+        kind={props.kind}
         initial={initial}
         filters={filters}
         taxons={taxons}
@@ -69,18 +66,13 @@ export async function ListPage({
     </>
   );
 }
-export async function DetailPage({
-  kind,
-  slug,
-}: {
-  kind: PostKind;
-  slug: string;
-}) {
+export async function DetailPage(props: { kind: PostKind; slug: string }) {
   await connection();
-  const post = await publicPost(kind, slug);
+  const post = await publicPost(props.kind, props.slug);
   if (!post) notFound();
-  const base = kind === "PROJECT" ? "/projects" : "/blog";
-  if (post.data.slug !== slug) permanentRedirect(`${base}/${post.data.slug}`);
+  const base = props.kind === "PROJECT" ? "/projects" : "/blog";
+  if (post.data.slug !== props.slug)
+    permanentRedirect(`${base}/${post.data.slug}`);
   const adjacent = await relatedPosts(post);
   return <DetailView post={post} base={base} adjacent={adjacent} />;
 }

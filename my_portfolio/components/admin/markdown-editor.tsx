@@ -9,10 +9,7 @@ import type { DataChange } from "@/lib/admin-types";
 
 const emptySubscribe = () => () => {};
 
-export function MarkdownEditor({
-  value,
-  onChange,
-}: {
+export function MarkdownEditor(props: {
   value: string;
   onChange: DataChange<string>;
 }) {
@@ -59,7 +56,7 @@ export function MarkdownEditor({
           value={null}
           onChange={(id) => {
             if (id) {
-              onChange(
+              props.onChange(
                 (current) => `${current}\n\n![이미지 설명](/media/${id})\n`,
               );
               setShowUpload(false);
@@ -70,17 +67,17 @@ export function MarkdownEditor({
       <div className={`editor-panes mode-${tab}`}>
         <div className="editor-input">
           <CodeMirror
-            value={value}
+            value={props.value}
             height="540px"
             theme={hydrated && resolvedTheme === "dark" ? "dark" : "light"}
             extensions={[markdown()]}
-            onChange={(value) => onChange(() => value)}
+            onChange={(value) => props.onChange(() => value)}
             basicSetup={{ lineNumbers: true, foldGutter: false }}
             aria-label="Markdown 본문 입력"
           />
         </div>
         <div className="editor-preview" aria-label="Markdown 미리보기">
-          <Markdown source={value} />
+          <Markdown source={props.value} />
         </div>
       </div>
     </div>

@@ -5,23 +5,17 @@ import { Menu, X, ArrowUpRight } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ThemeSwitch } from "@/components/ui/theme";
 export type SectionLink = { id: string; label: string };
-export function Header({
-  name,
-  sections,
-}: {
-  name: string;
-  sections: SectionLink[];
-}) {
+export function Header(props: { name: string; sections: SectionLink[] }) {
   const [open, setOpen] = useState(false);
   return (
     <header className="site-header">
       <div className="header-inner">
         <Link href="/" className="wordmark">
-          {name || "PORTFOLIO"}
+          {props.name || "PORTFOLIO"}
           <span className="status-dot" />
         </Link>
         <nav className="desktop-nav" aria-label="주 메뉴">
-          {sections.map((s) => (
+          {props.sections.map((s) => (
             <a key={s.id} href={`/#${s.id}`}>
               {s.label}
             </a>
@@ -53,7 +47,7 @@ export function Header({
                   <Link href="/" onClick={() => setOpen(false)}>
                     홈<ArrowUpRight size={17} />
                   </Link>
-                  {sections.map((s) => (
+                  {props.sections.map((s) => (
                     <a
                       key={s.id}
                       href={`/#${s.id}`}

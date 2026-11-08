@@ -30,21 +30,17 @@ export function BackToTop() {
 }
 export function Share() {
   const [state, setState] = useState("");
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(location.origin + location.pathname);
+      setState("공유 링크를 복사했습니다.");
+    } catch {
+      setState("주소창의 링크를 직접 복사하세요.");
+    }
+  }
   return (
     <span className="inline-action">
-      <button
-        className="button secondary"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(
-              location.origin + location.pathname,
-            );
-            setState("공유 링크를 복사했습니다.");
-          } catch {
-            setState("주소창의 링크를 직접 복사하세요.");
-          }
-        }}
-      >
+      <button className="button secondary" onClick={copyLink}>
         {state.startsWith("공유") ? <Check size={16} /> : <Copy size={16} />}
         링크 복사
       </button>
@@ -54,40 +50,37 @@ export function Share() {
     </span>
   );
 }
-export function BackToList({ href }: { href: string }) {
+export function BackToList(props: { href: string }) {
+  function returnToList(e: React.MouseEvent<HTMLAnchorElement>) {
+    try {
+      const context = JSON.parse(
+        sessionStorage.getItem(`portfolio:return:${props.href}`) || "null",
+      );
+      if (
+        context?.to === location.pathname &&
+        new URL(context.from, location.origin).pathname === props.href &&
+        history.length > 1
+      ) {
+        e.preventDefault();
+        history.back();
+      }
+    } catch {}
+  }
   return (
-    <a
-      href={href}
-      className="text-link"
-      onClick={(e) => {
-        try {
-          const context = JSON.parse(
-            sessionStorage.getItem(`portfolio:return:${href}`) || "null",
-          );
-          if (
-            context?.to === location.pathname &&
-            new URL(context.from, location.origin).pathname === href &&
-            history.length > 1
-          ) {
-            e.preventDefault();
-            history.back();
-          }
-        } catch {}
-      }}
-    >
+    <a href={props.href} className="text-link" onClick={returnToList}>
       <ArrowLeft size={16} />
       목록으로 돌아가기
     </a>
   );
 }
-export function ZoomImage({ src, alt }: { src: string; alt: string }) {
+export function ZoomImage(props: { src: string; alt: string }) {
   return (
     <Dialog.Root>
       <Dialog.Trigger
         className="zoom-trigger"
-        aria-label={`${alt || "본문 이미지"} 확대`}
+        aria-label={`${props.alt || "본문 이미지"} 확대`}
       >
-        <img src={src} alt={alt} loading="lazy" />
+        <img src={props.src} alt={props.alt} loading="lazy" />
         <span>
           <Expand size={17} />
         </span>
@@ -96,12 +89,12 @@ export function ZoomImage({ src, alt }: { src: string; alt: string }) {
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content className="image-dialog">
           <Dialog.Title className="sr-only">
-            {alt || "이미지 확대"}
+            {props.alt || "이미지 확대"}
           </Dialog.Title>
           <Dialog.Description className="sr-only">
             Escape 키 또는 닫기 버튼으로 돌아갑니다.
           </Dialog.Description>
-          <img src={src} alt={alt} />
+          <img src={props.src} alt={props.alt} />
           <Dialog.Close
             className="icon-button image-close"
             aria-label="이미지 닫기"

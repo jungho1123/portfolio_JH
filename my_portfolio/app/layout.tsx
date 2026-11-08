@@ -11,11 +11,7 @@ export const metadata: Metadata = {
   title: { default: "포트폴리오", template: "%s | 포트폴리오" },
   description: "프로젝트와 배움의 기록을 담은 개인 포트폴리오",
 };
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout(props: { children: React.ReactNode }) {
   return (
     <html lang="ko" data-scroll-behavior="smooth" suppressHydrationWarning>
       <body>
@@ -23,7 +19,7 @@ export default function RootLayout({
           <a href="#main" className="skip-link">
             본문으로 건너뛰기
           </a>
-          {children}
+          {props.children}
         </Theme>
       </body>
     </html>

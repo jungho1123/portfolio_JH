@@ -21,11 +21,7 @@ type Profile = Pick<
   | "email"
   | "links"
 >;
-export function HomeProfile({
-  home,
-  hasProjects,
-  activity,
-}: {
+export function HomeProfile(props: {
   home: Profile;
   hasProjects: boolean;
   activity?: GithubActivity;
@@ -34,41 +30,43 @@ export function HomeProfile({
     <section id="profile" className="profile">
       <div className="profile-top">
         <span className="eyebrow">PERSONAL PORTFOLIO</span>
-        <span className="profile-label mono">{home.job}</span>
+        <span className="profile-label mono">{props.home.job}</span>
       </div>
       <div className="profile-main">
         <div className="profile-copy">
           <p className="intro-label">안녕하세요,</p>
           <h1>
-            {home.name}
+            {props.home.name}
             <span className="accent">.</span>
           </h1>
-          <p className="profile-job">{home.job}</p>
-          {home.intro && <p className="profile-intro">{home.intro}</p>}
+          <p className="profile-job">{props.home.job}</p>
+          {props.home.intro && (
+            <p className="profile-intro">{props.home.intro}</p>
+          )}
         </div>
         <div className="avatar-frame">
-          {home.photoId ? (
+          {props.home.photoId ? (
             <img
-              src={`/media/${home.photoId}?w=320`}
-              alt={`${home.name} 프로필`}
+              src={`/media/${props.home.photoId}?w=320`}
+              alt={`${props.home.name} 프로필`}
               width={144}
               height={144}
             />
           ) : (
-            <span aria-hidden="true">{home.name.slice(0, 1)}</span>
+            <span aria-hidden="true">{props.home.name.slice(0, 1)}</span>
           )}
           <span className="avatar-corner" />
         </div>
       </div>
       <div className="profile-bottom">
         <div className="profile-ctas">
-          {hasProjects && (
+          {props.hasProjects && (
             <a href="#projects" className="button">
               프로젝트 보기
               <ArrowDownRight size={16} />
             </a>
           )}
-          {home.resumeId && (
+          {props.home.resumeId && (
             <>
               <a
                 href="/resume"
@@ -90,9 +88,9 @@ export function HomeProfile({
           )}
         </div>
         <div className="social-links">
-          {home.github && (
+          {props.home.github && (
             <a
-              href={`https://github.com/${home.github}`}
+              href={`https://github.com/${props.home.github}`}
               target="_blank"
               rel="noopener noreferrer"
               className="icon-button"
@@ -101,16 +99,16 @@ export function HomeProfile({
               <Github aria-hidden="true" size={19} />
             </a>
           )}
-          {home.email && (
+          {props.home.email && (
             <a
-              href={`mailto:${home.email}`}
+              href={`mailto:${props.home.email}`}
               className="icon-button"
               aria-label="이메일 보내기"
             >
               <Mail size={19} />
             </a>
           )}
-          {home.links.map((l) => (
+          {props.home.links.map((l) => (
             <a
               key={l.label + l.url}
               href={l.url}
@@ -124,16 +122,16 @@ export function HomeProfile({
           ))}
         </div>
       </div>
-      {home.github && (
-        <GithubActivityView username={home.github} activity={activity} />
+      {props.home.github && (
+        <GithubActivityView
+          username={props.home.github}
+          activity={props.activity}
+        />
       )}
     </section>
   );
 }
-function GithubActivityView({
-  username,
-  activity,
-}: {
+function GithubActivityView(props: {
   username: string;
   activity?: GithubActivity;
 }) {
@@ -145,16 +143,16 @@ function GithubActivityView({
           GitHub contributions
         </span>
         <a
-          href={`https://github.com/${username}`}
+          href={`https://github.com/${props.username}`}
           className="text-link small"
           target="_blank"
           rel="noopener noreferrer"
         >
-          @{username}
+          @{props.username}
           <ArrowUpRight size={13} />
         </a>
       </div>
-      {activity?.days.length ? (
+      {props.activity?.days.length ? (
         <>
           <div
             className="contribution-scroll"
@@ -163,7 +161,7 @@ function GithubActivityView({
             aria-label="최근 1년 GitHub 공개 기여 달력"
           >
             <div className="contribution-grid">
-              {activity.days.map((d) => (
+              {props.activity.days.map((d) => (
                 <span
                   key={d.date}
                   className={`contribution level-${d.count === 0 ? 0 : d.count < 3 ? 1 : d.count < 6 ? 2 : d.count < 10 ? 3 : 4}`}
@@ -175,10 +173,10 @@ function GithubActivityView({
           </div>
           <p className="activity-note small muted">
             최근 1년{" "}
-            {activity.days
+            {props.activity.days
               .reduce((sum, d) => sum + d.count, 0)
               .toLocaleString("ko-KR")}
-            회{activity.unavailable && " · 마지막 정상 조회 데이터"}
+            회{props.activity.unavailable && " · 마지막 정상 조회 데이터"}
           </p>
         </>
       ) : (

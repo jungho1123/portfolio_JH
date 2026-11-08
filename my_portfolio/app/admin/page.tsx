@@ -3,13 +3,11 @@ import { currentAdmin } from "@/lib/admin";
 import { Login } from "@/components/admin/auth-controls";
 import { Dashboard } from "@/components/admin/dashboard";
 import { AdminNav } from "@/components/admin/nav";
-async function AdminHome({
-  searchParams,
-}: {
+async function AdminHome(props: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const admin = await currentAdmin();
-  const params = await searchParams;
+  const params = await props.searchParams;
   if (!admin)
     return (
       <>
@@ -40,14 +38,12 @@ async function AdminHome({
     </>
   );
 }
-export default function AdminPage({
-  searchParams,
-}: {
+export default function AdminPage(props: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   return (
     <Suspense fallback={<p role="status">관리자 상태를 확인하는 중…</p>}>
-      <AdminHome searchParams={searchParams} />
+      <AdminHome searchParams={props.searchParams} />
     </Suspense>
   );
 }

@@ -1,22 +1,20 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { ListPage, type Search } from "@/components/public/pages";
-export async function generateMetadata({
-  searchParams,
-}: {
+export async function generateMetadata(props: {
   searchParams: Search;
 }): Promise<Metadata> {
-  const p = await searchParams;
+  const p = await props.searchParams;
   return {
     title: "블로그",
     alternates: { canonical: "/blog" + (p.page ? `?page=${p.page}` : "") },
     robots: { index: !p.sort && !p.category && !p.tag },
   };
 }
-export default function Page({ searchParams }: { searchParams: Search }) {
+export default function Page(props: { searchParams: Search }) {
   return (
     <Suspense fallback={<p role="status">목록을 불러오는 중…</p>}>
-      <ListPage kind="BLOG" searchParams={searchParams} />
+      <ListPage kind="BLOG" searchParams={props.searchParams} />
     </Suspense>
   );
 }

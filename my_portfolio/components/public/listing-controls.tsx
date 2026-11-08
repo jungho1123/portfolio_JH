@@ -3,13 +3,7 @@ import { RotateCcw } from "lucide-react";
 import type { PostKind } from "@/lib/schemas";
 import type { ListFilters } from "@/lib/public-data";
 export type ListingTaxon = { id: string; name: string; type: string };
-export function ListingFilters({
-  kind,
-  filters,
-  taxons,
-  total,
-  onChange,
-}: {
+export function ListingFilters(props: {
   kind: PostKind;
   filters: ListFilters;
   taxons: ListingTaxon[];
@@ -23,9 +17,9 @@ export function ListingFilters({
       </label>
       <select
         id="sort"
-        value={filters.sort}
+        value={props.filters.sort}
         onChange={(e) =>
-          onChange({ sort: e.target.value as ListFilters["sort"] })
+          props.onChange({ sort: e.target.value as ListFilters["sort"] })
         }
       >
         <option value="newest">최신순</option>
@@ -36,11 +30,11 @@ export function ListingFilters({
       </label>
       <select
         id="category"
-        value={filters.category}
-        onChange={(e) => onChange({ category: e.target.value })}
+        value={props.filters.category}
+        onChange={(e) => props.onChange({ category: e.target.value })}
       >
         <option value="">전체 카테고리</option>
-        {taxons
+        {props.taxons
           .filter((t) => t.type === "CATEGORY")
           .map((t) => (
             <option key={t.id} value={t.id}>
@@ -49,36 +43,36 @@ export function ListingFilters({
           ))}
       </select>
       <span className="list-count">
-        {total}개의 {kind === "PROJECT" ? "프로젝트" : "글"}
+        {props.total}개의 {props.kind === "PROJECT" ? "프로젝트" : "글"}
       </span>
-      {taxons.some((t) => t.type === "TAG") && (
+      {props.taxons.some((t) => t.type === "TAG") && (
         <div
           className="filter-tags"
           role="group"
           aria-label="태그 필터: 선택한 태그 모두 포함"
         >
-          {taxons
+          {props.taxons
             .filter((t) => t.type === "TAG")
             .map((t) => (
               <button
                 className="filter-chip"
                 key={t.id}
-                aria-pressed={filters.tags.includes(t.id)}
+                aria-pressed={props.filters.tags.includes(t.id)}
                 onClick={() =>
-                  onChange({
-                    tags: filters.tags.includes(t.id)
-                      ? filters.tags.filter((id) => id !== t.id)
-                      : [...filters.tags, t.id],
+                  props.onChange({
+                    tags: props.filters.tags.includes(t.id)
+                      ? props.filters.tags.filter((id) => id !== t.id)
+                      : [...props.filters.tags, t.id],
                   })
                 }
               >
                 {t.name}
               </button>
             ))}
-          {(filters.tags.length > 0 || filters.category) && (
+          {(props.filters.tags.length > 0 || props.filters.category) && (
             <button
               className="text-link small"
-              onClick={() => onChange({ tags: [], category: "" })}
+              onClick={() => props.onChange({ tags: [], category: "" })}
             >
               <RotateCcw size={13} />
               초기화
@@ -89,15 +83,14 @@ export function ListingFilters({
     </div>
   );
 }
-export function ListingLoadState({
-  sentinel,
-  loading,
-  error,
-  hasMore,
-  hasItems,
-  onLoadMore,
-  onRetry,
-}: {
+function attachElementRef(
+  ref: Ref<HTMLDivElement>,
+  node: HTMLDivElement | null,
+) {
+  if (typeof ref === "function") return ref(node);
+  if (ref) ref.current = node;
+}
+export function ListingLoadState(props: {
   sentinel: Ref<HTMLDivElement>;
   loading: boolean;
   error: string;
@@ -106,28 +99,31 @@ export function ListingLoadState({
   onLoadMore: () => Promise<void>;
   onRetry: () => Promise<void>;
 }) {
+  function attachSentinel(node: HTMLDivElement | null) {
+    return attachElementRef(props.sentinel, node);
+  }
   return (
-    <div ref={sentinel} className="load-more" aria-live="polite">
-      {loading && (
+    <div ref={attachSentinel} className="load-more" aria-live="polite">
+      {props.loading && (
         <span className="muted small" role="status">
           불러오는 중…
         </span>
       )}
-      {error && (
+      {props.error && (
         <p className="error-notice notice" role="alert">
-          {error}
+          {props.error}
         </p>
       )}
-      {(hasMore || error) && (
+      {(props.hasMore || props.error) && (
         <button
           className="button secondary"
-          onClick={error ? onRetry : onLoadMore}
-          disabled={loading}
+          onClick={props.error ? props.onRetry : props.onLoadMore}
+          disabled={props.loading}
         >
-          {error ? "다시 시도" : "더 보기"}
+          {props.error ? "다시 시도" : "더 보기"}
         </button>
       )}
-      {!hasMore && hasItems && !loading && !error && (
+      {!props.hasMore && props.hasItems && !props.loading && !props.error && (
         <p className="muted small">모든 글을 확인했습니다.</p>
       )}
     </div>

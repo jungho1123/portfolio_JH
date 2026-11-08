@@ -7,9 +7,9 @@ import { homeSchema, postSchema } from "@/lib/schemas";
 import { HomeView } from "@/components/public/home";
 import { DetailView } from "@/components/public/detail-view";
 import { db } from "@/lib/prisma";
-async function Preview({ params }: { params: Promise<{ id: string }> }) {
+async function Preview(props: { params: Promise<{ id: string }> }) {
   if (!(await currentAdmin())) redirect("/admin?expired=1");
-  const content = await adminContent((await params).id);
+  const content = await adminContent((await props.params).id);
   const data = content.draft!.data;
   if (content.kind === "HOME") {
     const home = homeSchema.parse(data);
@@ -61,10 +61,10 @@ async function Preview({ params }: { params: Promise<{ id: string }> }) {
     </>
   );
 }
-export default function Page({ params }: { params: Promise<{ id: string }> }) {
+export default function Page(props: { params: Promise<{ id: string }> }) {
   return (
     <Suspense fallback={<p role="status">미리보기를 준비하는 중…</p>}>
-      <Preview params={params} />
+      <Preview params={props.params} />
     </Suspense>
   );
 }

@@ -188,3 +188,154 @@ test("a late cache retry cannot clear a newer mutation's cache failure", () => {
   );
   assert.equal(state.cacheError, "다음 캐시 실패");
 });
+
+test("restoration confirms the submitted generation and preserves edits made during reconciliation", () => {
+  let state = editorReducer(
+    createEditorState(document()),
+    editTitle("제출한 입력"),
+  );
+  const generation = state.generation;
+  state = editorReducer(state, { type: "deactivate" });
+  state = editorReducer(state, { type: "reconcile-start" });
+  state = editorReducer(state, editTitle("조정 중 새 입력"));
+  const acknowledged = document("제출한 입력", 2);
+  state = editorReducer(state, {
+    type: "reconciled",
+    doc: acknowledged,
+    acknowledgement: {
+      type: "save",
+      baseRevision: 1,
+      generation,
+      doc: acknowledged,
+    },
+  });
+  assert.equal(state.savedGeneration, generation);
+  assert.equal(state.doc.revision, 2);
+  assert.equal(
+    state.content.kind !== "HOME" && state.content.data.title,
+    "조정 중 새 입력",
+  );
+  assert.equal(isDirty(state), true);
+  assert.equal(state.reconciliation, "ready");
+  assert.equal(state.conflict, false);
+});
+
+test("matching server text without an acknowledgement remains a revision conflict", () => {
+  let state = editorReducer(
+    createEditorState(document()),
+    editTitle("같은 입력"),
+  );
+  state = editorReducer(state, { type: "deactivate" });
+  state = editorReducer(state, {
+    type: "reconciled",
+    doc: document("같은 입력", 2),
+  });
+  assert.equal(state.conflict, true);
+  assert.equal(state.doc.revision, 1);
+  assert.equal(state.savedGeneration, 0);
+  assert.equal(isDirty(state), true);
+});
+
+test("a server edit after an acknowledged save is still a conflict", () => {
+  const state = editorReducer(
+    createEditorState(document()),
+    editTitle("제출한 입력"),
+  );
+  const next = editorReducer(state, {
+    type: "reconciled",
+    doc: document("다른 탭", 3),
+    acknowledgement: {
+      type: "save",
+      baseRevision: 1,
+      generation: 1,
+      doc: document("제출한 입력", 2),
+    },
+  });
+  assert.equal(next.conflict, true);
+  assert.equal(next.savedGeneration, 0);
+  assert.equal(next.content, state.content);
+});
+
+test("failed reconciliation retains local state and cache retry cannot resume autosave", () => {
+  let state = editorReducer(
+    createEditorState(document()),
+    editTitle("기기 입력"),
+  );
+  state = editorReducer(state, {
+    type: "reconcile-failed",
+    message: "재조회 실패",
+  });
+  state = editorReducer(state, {
+    type: "cache-cleared",
+    version: state.cacheVersion,
+  });
+  assert.equal(state.reconciliation, "failed");
+  assert.equal(state.error, "재조회 실패");
+  assert.equal(isDirty(state), true);
+});
+
+test("restoring a confirmed discard retains input newer than the submitted action", () => {
+  let state = editorReducer(
+    createEditorState(document()),
+    editTitle("폐기 대상"),
+  );
+  const generation = state.generation;
+  state = editorReducer(state, { type: "deactivate" });
+  state = editorReducer(state, editTitle("폐기 요청 이후의 입력"));
+  const acknowledged = document("공개본", 2);
+  state = editorReducer(state, {
+    type: "reconciled",
+    doc: acknowledged,
+    acknowledgement: {
+      type: "action",
+      action: "discard",
+      generation,
+      baseRevision: 1,
+      doc: acknowledged,
+      cacheError: null,
+    },
+  });
+  assert.equal(
+    state.content.kind !== "HOME" && state.content.data.title,
+    "폐기 요청 이후의 입력",
+  );
+  assert.equal(state.savedGeneration, generation);
+  assert.equal(isDirty(state), true);
+});
+
+test("acknowledgements for another document or revision cannot confirm recovery deletion", () => {
+  const state = editorReducer(
+    createEditorState(document()),
+    editTitle("보존할 입력"),
+  );
+  for (const doc of [
+    { ...document("보존할 입력", 2), id: "other" },
+    document("보존할 입력", 3),
+  ]) {
+    const next = editorReducer(state, {
+      type: "reconciled",
+      doc,
+      acknowledgement: { type: "save", baseRevision: 1, generation: 1, doc },
+    });
+    assert.equal(next.conflict, true);
+    assert.equal(isDirty(next), true);
+  }
+});
+
+test("an older acknowledgement cannot move the document revision or saved generation backwards", () => {
+  let state = editorReducer(
+    createEditorState(document()),
+    editTitle("현재 입력"),
+  );
+  state = editorReducer(state, {
+    type: "saved",
+    doc: document("현재 입력", 3),
+    generation: 1,
+  });
+  const next = editorReducer(state, {
+    type: "saved",
+    doc: document("예전 입력", 2),
+    generation: 0,
+  });
+  assert.equal(next, state);
+});

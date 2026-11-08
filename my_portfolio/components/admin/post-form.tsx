@@ -1,16 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Field } from "@/components/admin/shared";
+import { errorMessage } from "@/lib/error-message";
 import { api } from "@/lib/admin-api";
 import { MediaField } from "@/components/admin/media-field";
 import { MarkdownEditor } from "@/components/admin/markdown-editor";
 import type { PostData, HomeData, PostKind } from "@/lib/schemas";
 import type { TaxonItem, AdminDocument, DataChange } from "@/lib/admin-types";
-export function PostForm({
-  kind,
-  data,
-  onChange,
-}: {
+export function PostForm(props: {
   kind: PostKind;
   data: PostData;
   onChange: DataChange<PostData>;
@@ -21,46 +18,71 @@ export function PostForm({
   const [taxonType, setTaxonType] = useState<"CATEGORY" | "TAG">("TAG");
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
-  const session = useRef({ active: false });
+  const session = useRef({ active: false, request: 0 });
   const set = <K extends keyof PostData>(
     key: K,
     value: PostData[K] | ((current: PostData[K]) => PostData[K]),
   ) =>
-    onChange((current) => ({
+    props.onChange((current) => ({
       ...current,
       [key]: typeof value === "function" ? value(current[key]) : value,
     }));
   useEffect(() => {
-    const scope = { active: true };
+    const scope = { active: true, request: 1 };
     session.current = scope;
     api<TaxonItem[]>("/api/admin/taxonomy")
       .then((items) => {
-        if (scope.active) setTaxons(items);
+        if (scope.active && scope.request === 1) setTaxons(items);
       })
       .catch((e) => {
-        if (scope.active) setError(e.message);
+        if (scope.active && scope.request === 1) setError(errorMessage(e));
       });
-    if (kind === "PROJECT")
+    if (props.kind === "PROJECT")
       api<AdminDocument>("/api/admin/content/home")
         .then((h) => {
           if (scope.active && h.kind === "HOME")
             setStack(h.published?.data.stack || []);
         })
         .catch((e) => {
-          if (scope.active) setError(e.message);
+          if (scope.active) setError(errorMessage(e));
         });
+
     return () => {
       scope.active = false;
       setCreating(false);
     };
-  }, [kind]);
+  }, [props.kind]);
+  async function createTaxon() {
+    const scope = session.current;
+    const request = ++scope.request;
+    const ownsRequest = () => scope.active && request === scope.request;
+    setCreating(true);
+    try {
+      const t = await api<TaxonItem>("/api/admin/taxonomy", "POST", {
+        kind: props.kind,
+        type: taxonType,
+        name: newName,
+      });
+      if (!ownsRequest()) return;
+      setTaxons((prev) => [...prev, t]);
+      if (taxonType === "TAG")
+        set("tagIds", (ids) => [...new Set([...ids, t.id])]);
+      else set("categoryId", t.id);
+      setNewName("");
+      setError("");
+    } catch (e) {
+      if (ownsRequest()) setError(errorMessage(e));
+    } finally {
+      if (ownsRequest()) setCreating(false);
+    }
+  }
   return (
     <>
       <div className="form-panel">
         <h2>기본 정보</h2>
         <Field label="제목">
           <input
-            value={data.title}
+            value={props.data.title}
             onChange={(e) => set("title", e.target.value)}
           />
         </Field>
@@ -69,7 +91,7 @@ export function PostForm({
           hint="제목을 바꿔도 주소는 유지됩니다. 게시 후 직접 변경한 이전 주소는 새 주소로 연결됩니다."
         >
           <input
-            value={data.slug}
+            value={props.data.slug}
             onChange={(e) => set("slug", e.target.value)}
             spellCheck={false}
           />
@@ -77,35 +99,35 @@ export function PostForm({
         <Field label="짧은 요약">
           <textarea
             rows={3}
-            value={data.summary}
+            value={props.data.summary}
             onChange={(e) => set("summary", e.target.value)}
           />
         </Field>
         <div className="form-grid">
           <MediaField
             label="대표 이미지"
-            value={data.imageId}
+            value={props.data.imageId}
             onChange={(id) => set("imageId", id)}
           />
           <div>
             <Field label="대표 이미지 대체 텍스트">
               <input
-                value={data.imageAlt}
+                value={props.data.imageAlt}
                 onChange={(e) => set("imageAlt", e.target.value)}
               />
             </Field>
-            <Field label={`자르기 위치: ${data.imagePosition}%`}>
+            <Field label={`자르기 위치: ${props.data.imagePosition}%`}>
               <input
                 type="range"
                 min={0}
                 max={100}
-                value={data.imagePosition}
+                value={props.data.imagePosition}
                 onChange={(e) => set("imagePosition", Number(e.target.value))}
               />
             </Field>
             <MediaField
               label="별도 공유 이미지"
-              value={data.shareImageId}
+              value={props.data.shareImageId}
               onChange={(id) => set("shareImageId", id)}
             />
           </div>
@@ -115,12 +137,12 @@ export function PostForm({
         <h2>분류</h2>
         <Field label="카테고리">
           <select
-            value={data.categoryId || ""}
+            value={props.data.categoryId || ""}
             onChange={(e) => set("categoryId", e.target.value || null)}
           >
             <option value="">선택 안 함</option>
             {taxons
-              .filter((t) => t.kind === kind && t.type === "CATEGORY")
+              .filter((t) => t.kind === props.kind && t.type === "CATEGORY")
               .map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -131,18 +153,18 @@ export function PostForm({
         <fieldset className="checkbox-group">
           <legend>태그</legend>
           {taxons
-            .filter((t) => t.kind === kind && t.type === "TAG")
+            .filter((t) => t.kind === props.kind && t.type === "TAG")
             .map((t) => (
               <label key={t.id}>
                 <input
                   type="checkbox"
-                  checked={data.tagIds.includes(t.id)}
+                  checked={props.data.tagIds.includes(t.id)}
                   onChange={(e) =>
                     set(
                       "tagIds",
                       e.target.checked
-                        ? [...data.tagIds, t.id]
-                        : data.tagIds.filter((id) => id !== t.id),
+                        ? [...props.data.tagIds, t.id]
+                        : props.data.tagIds.filter((id) => id !== t.id),
                     )
                   }
                 />
@@ -170,28 +192,7 @@ export function PostForm({
           <button
             className="button secondary"
             disabled={creating || !newName.trim()}
-            onClick={async () => {
-              const scope = session.current;
-              setCreating(true);
-              try {
-                const t = await api<TaxonItem>("/api/admin/taxonomy", "POST", {
-                  kind,
-                  type: taxonType,
-                  name: newName,
-                });
-                if (!scope.active) return;
-                setTaxons((prev) => [...prev, t]);
-                if (taxonType === "TAG")
-                  set("tagIds", (ids) => [...new Set([...ids, t.id])]);
-                else set("categoryId", t.id);
-                setNewName("");
-                setError("");
-              } catch (e) {
-                if (scope.active) setError((e as Error).message);
-              } finally {
-                if (scope.active) setCreating(false);
-              }
-            }}
+            onClick={createTaxon}
           >
             추가
           </button>
@@ -202,27 +203,27 @@ export function PostForm({
           </p>
         )}
       </div>
-      {kind === "PROJECT" && (
+      {props.kind === "PROJECT" && (
         <div className="form-panel">
           <h2>프로젝트 정보</h2>
           <div className="form-grid">
             <Field label="시작일">
               <input
                 type="date"
-                value={data.startDate}
+                value={props.data.startDate}
                 onChange={(e) => set("startDate", e.target.value)}
               />
             </Field>
             <Field label="종료일">
               <input
                 type="date"
-                value={data.endDate}
+                value={props.data.endDate}
                 onChange={(e) => set("endDate", e.target.value)}
               />
             </Field>
             <Field label="진행 상태">
               <select
-                value={data.progress}
+                value={props.data.progress}
                 onChange={(e) =>
                   set("progress", e.target.value as PostData["progress"])
                 }
@@ -234,7 +235,7 @@ export function PostForm({
             </Field>
             <Field label="프로젝트 구분">
               <select
-                value={data.teamType}
+                value={props.data.teamType}
                 onChange={(e) =>
                   set("teamType", e.target.value as PostData["teamType"])
                 }
@@ -245,7 +246,7 @@ export function PostForm({
             </Field>
             <Field label="담당 역할">
               <input
-                value={data.role}
+                value={props.data.role}
                 onChange={(e) => set("role", e.target.value)}
               />
             </Field>
@@ -253,7 +254,7 @@ export function PostForm({
               <input
                 type="number"
                 min={1}
-                value={data.teamSize}
+                value={props.data.teamSize}
                 onChange={(e) => set("teamSize", Number(e.target.value))}
               />
             </Field>
@@ -265,13 +266,15 @@ export function PostForm({
                 <label key={t.id}>
                   <input
                     type="checkbox"
-                    checked={data.technologyIds.includes(t.id)}
+                    checked={props.data.technologyIds.includes(t.id)}
                     onChange={(e) =>
                       set(
                         "technologyIds",
                         e.target.checked
-                          ? [...data.technologyIds, t.id]
-                          : data.technologyIds.filter((id) => id !== t.id),
+                          ? [...props.data.technologyIds, t.id]
+                          : props.data.technologyIds.filter(
+                              (id) => id !== t.id,
+                            ),
                       )
                     }
                   />
@@ -283,7 +286,7 @@ export function PostForm({
                 홈 편집에서 Stack을 먼저 게시하세요.
               </p>
             )}
-            {data.technologyIds
+            {props.data.technologyIds
               .filter((id) => !stack.some((t) => t.id === id))
               .map((id) => (
                 <label key={id}>
@@ -293,11 +296,13 @@ export function PostForm({
                     onChange={() =>
                       set(
                         "technologyIds",
-                        data.technologyIds.filter((value) => value !== id),
+                        props.data.technologyIds.filter(
+                          (value) => value !== id,
+                        ),
                       )
                     }
                   />
-                  {data.technologies.find((t) => t.id === id)?.name ||
+                  {props.data.technologies.find((t) => t.id === id)?.name ||
                     "선택한 기술"}{" "}
                   (현재 Stack에서 제거됨 · 해제 후 다시 선택하세요)
                 </label>
@@ -313,7 +318,7 @@ export function PostForm({
             <Field key={key} label={label}>
               <input
                 type="url"
-                value={data[key]}
+                value={props.data[key]}
                 onChange={(e) => set(key, e.target.value)}
               />
             </Field>
@@ -323,7 +328,7 @@ export function PostForm({
       <div className="form-panel wide-panel">
         <h2>본문</h2>
         <MarkdownEditor
-          value={data.markdown}
+          value={props.data.markdown}
           onChange={(markdown) => set("markdown", markdown)}
         />
       </div>

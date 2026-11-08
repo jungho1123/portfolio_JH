@@ -10,14 +10,8 @@ import {
 import { useContentEditor } from "@/components/admin/use-content-editor";
 import type { AdminDocument } from "@/lib/admin-types";
 
-export function Editor({
-  initial,
-  accountId,
-}: {
-  initial: AdminDocument;
-  accountId: string;
-}) {
-  const editor = useContentEditor(initial, accountId);
+export function Editor(props: { initial: AdminDocument; accountId: string }) {
+  const editor = useContentEditor(props.initial, props.accountId);
   const content = editor.content;
   if (editor.deleted)
     return (
@@ -35,8 +29,8 @@ export function Editor({
       onCompositionEnd={editor.compositionEnd}
     >
       <EditorToolbar
-        id={initial.id}
-        kind={initial.kind}
+        id={props.initial.id}
+        kind={props.initial.kind}
         state={editor.doc.state}
         busy={editor.busy}
         conflict={editor.conflict}
@@ -77,7 +71,7 @@ export function Editor({
         </div>
       )}
       <EditorLifecycleActions
-        kind={initial.kind}
+        kind={props.initial.kind}
         state={editor.doc.state}
         busy={editor.busy}
         onAction={editor.action}

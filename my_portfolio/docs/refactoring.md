@@ -241,3 +241,41 @@ LD_LIBRARY_PATH=/home/user/.cache/portfolio-playwright-libs/root/usr/lib/x86_64-
 - 실제 운영 Blob 업로드/외부 이미지 가져오기·PDF 교체·배포 후 캐시 회수는 이번에 새로 실행하지 않았다. 업로드 함수는 구현을 그대로 이동했고 서버 파일 검사와 기존 권한 테스트를 유지한다.
 - 기존 DB 연결에서 나오는 PostgreSQL SSL 모드 경고는 이번 컴포넌트 리팩터링 범위에 포함하지 않았다.
 - 기존 미디어 사용처의 index key 등 이번 책임 분리와 직접 관계없는 항목은 별도 개선 대상으로 남겼다. 안정적인 식별자를 추가하려면 현재 API projection도 검토해야 한다.
+
+## Lifecycle-first 후속 리팩터링
+
+편집기의 계정/문서 identity와 Activity activation, 입력 generation, 이미 제출한 서버 작업을 분리했다. activation 종료 시 타이머·구독·이전 UI 콜백만 정리한다. 저장/게시/폐기 요청의 Promise와 결과는 유지하며 숨겨진 동안에도 응답을 기록한다. 처음 활성화할 때와 Activity 복귀 시에는 알려진 작업을 기다린 다음 서버 문서를 재조회한다. 조정 중에도 입력과 IndexedDB 복구본 쓰기는 계속 가능하지만 서버 변경 작업은 대기한다.
+
+조정 reducer는 제출 당시 generation/기반 revision, 응답 revision, 서버 재조회 결과를 함께 확인한다. 응답과 서버 스냅샷이 같은 작업으로 확인된 경우에만 saved generation을 전진시킨다. 더 최신 입력은 유지하고 기존 1초 debounce와 IME 보호를 거쳐 저장한다. 응답이 불명확하거나 다른 클라이언트의 revision 증가가 있으면 텍스트 일치 여부와 관계없이 충돌로 처리한다. 조회 실패 시 자동저장은 멈추고 기존 저장 버튼으로 재조회·저장을 재시도할 수 있다. 게시/폐기/삭제를 자동 재전송하지 않는다. 복구본 삭제는 큐에서 실행할 때와 IndexedDB open 이후에도 확인된 generation보다 새로운 입력이 없는지 검사한다.
+
+수동 memoization 의존성 검토 결과:
+
+- 목차의 `[source]` 계산은 순수 계산으로 직접 실행한다.
+- 편집기의 transition/오류 전달/타이머 정리/flush/save/schedule 콜백은 문서 identity나 작업 소유권을 결정하지 않는다. 일반 함수로 바꾸고 activation과 제출 작업을 명시적으로 검사한다.
+- 복구의 enqueue는 ref 큐, persist/clear/consume은 계정·문서와 generation을 기준으로 동작한다. 함수 identity를 유지할 필요가 없다.
+- 목록 요청의 kind/sort/category/tags/page는 문자열 query로 표현해 layout effect의 의미 있는 의존성으로 사용한다. 요청 함수는 훅 밖에 둔다. loadMore/retry는 activation이 소유한 cursor와 요청 잠금을 사용한다. 복원 프레임·요청 취소·재조회 병합·layout cleanup 시점은 유지했다.
+- `useEffectEvent`는 effect의 활성화/정리와 observer, 복구 비교 기준의 최신 값을 읽는 용도에만 사용한다. 사용자 이벤트 핸들러로 반환하지 않는다. 유지한 `useCallback`/`useMemo` 예외는 없다.
+
+미디어·분류 목록의 초기 조회와 reload는 같은 activation/request generation을 공유한다. 늦은 이전 응답이 최신 목록이나 오류를 덮어쓰지 않는다. 폼의 미디어/분류 생성도 이전 activation과 더 오래된 초기 조회 결과를 배제한다. 코드 복사는 activation별 요청과 타이머를 소유하며 반복 클릭 시 기존 타이머를 취소한다. highlighting은 code와 language가 모두 일치할 때만 사용하고, import 또는 강조 실패 시 기존 plain-code 화면을 표시한다.
+
+React 컴포넌트와 Markdown render 콜백은 단일 inline-typed `props` 인자와 `props.foo` 접근을 사용한다. 오류 메시지는 클라이언트 안전 helper로 narrowing하고 Dashboard의 문서 union은 kind로 구분한다. ESLint는 props destructuring과 직접 ReactNode/manual memoization import를 제한한다. 기존 compiler/hook dependency 진단은 유지했다. sentinel ref는 commit 콜백에서 전달해 render 중 `.current`를 읽지 않는다. 인증·SSRF·Markdown HTML 제한·서버 검증·HTTP API·DB 스키마·라우트·캐시 설정·CSS는 변경하지 않았다.
+
+최종 검증:
+
+| 검사 | 결과 |
+| --- | --- |
+| `pnpm typecheck` | 통과 |
+| `pnpm lint` | 오류·경고 없이 통과. 별도 virtual fixture로 props destructuring 및 ReactNode/manual memoization import 금지 동작도 확인 |
+| `pnpm build` | 통과. 기존 PostgreSQL SSL mode 경고는 동일 |
+| `pnpm test` | 단위/실제 PostgreSQL 통합 28개 통과: 기존 21개 + reducer 회귀 7개 |
+| `pnpm test:e2e` | 67개 통과: 기존 43개 + 편집기 lifecycle 14개 + client lifecycle 10개. opt-in 시각 비교 1개는 기본 설정에 따라 제외 |
+| `REFACTOR_VISUAL_PHASE=before pnpm exec playwright test tests/e2e/refactor-visual.spec.ts` | 수정 전 별도 실행 통과. 8개 화면 × 3개 폭 × 2개 테마 baseline 48개 |
+| `REFACTOR_VISUAL_PHASE=after pnpm exec playwright test tests/e2e/refactor-visual.spec.ts` | 최종 소스에서 별도 실행 통과. 48개 fixture의 검사 대상 DOM 동일, 변경 픽셀 합계 0 |
+| 수정한 TS/TSX/MJS의 Prettier 검사 | 통과 |
+| `git diff --check` | 통과 |
+
+기존 Activity action-lock 테스트는 응답 전 버튼 활성화 기대를 “조정 중 비활성화 → 알려진 응답 처리 후 활성화”로 바꿨다. 입력 보존·오류 격리·실제 DB 검증은 유지했으며, 중복 mutation 금지 요구사항을 검사한다. 다른 기존 테스트의 검증 조건은 유지했다.
+
+추가 회귀는 debounce 전 숨김, 숨김/복귀 전후 저장 응답, 조정 중 입력·다른 클라이언트의 변경, 모호한 응답, 조회 실패 후 명시적 재시도, 반복 복귀, 숨겨진 게시/폐기/삭제, IME, 지연된 복구본 삭제와 IndexedDB 삭제 실패 안내를 검증한다. 미디어·분류는 activation과 reload 순서가 바뀌는 응답을 제어하며, 코드 복사는 실제 브라우저 타이머와 지연 clipboard 결과를 확인한다. highlighting import 실패는 hydration을 마친 뒤 동적 구현 청크에 주입해 앱 초기 로딩 실패와 구분한다.
+
+시각 비교는 고정 fixture의 정상 화면에 한정하며 기존 설정대로 `.save-status`를 제외한다. 오류/복구 안내는 브라우저 회귀 테스트에서 확인한다. DB는 격리된 PostgreSQL이고 장애 응답·clipboard·청크 실패는 브라우저에서 제어했다. 기존 인증·테마 테스트도 전체 실행에 포함했다. 실제 GitHub OAuth 왕복, 운영 Blob 및 배포 후 캐시 회수를 추가로 검증한 것은 아니다. 성능 측정이나 성능 향상 주장은 포함하지 않는다. `useCallback`/`useMemo` 예외와 미해결 회귀는 없다.

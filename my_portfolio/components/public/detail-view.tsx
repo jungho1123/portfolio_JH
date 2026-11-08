@@ -7,39 +7,39 @@ import { Markdown, TableOfContents } from "@/components/public/markdown";
 import { PostCard } from "@/components/public/card";
 import { Share, BackToList } from "@/components/public/actions";
 
-export function DetailView({
-  post,
-  base,
-  adjacent,
-}: {
+export function DetailView(props: {
   post: PublicPost;
   base: string;
   adjacent?: Awaited<ReturnType<typeof relatedPosts>>;
 }) {
-  const d = post.data;
+  const d = props.post.data;
   return (
     <article>
       <header className="detail-header">
         <p className="eyebrow">
-          {post.kind === "PROJECT" ? "PROJECT" : "BLOG"}
-          {post.category && ` / ${post.category.name}`}
+          {props.post.kind === "PROJECT" ? "PROJECT" : "BLOG"}
+          {props.post.category && ` / ${props.post.category.name}`}
         </p>
         <h1>{d.title}</h1>
         {d.summary && <p className="detail-summary">{d.summary}</p>}
         <div className="detail-meta">
-          <time dateTime={post.firstPublishedAt}>
-            게시 {formatDate(post.firstPublishedAt)}
+          <time dateTime={props.post.firstPublishedAt}>
+            게시 {formatDate(props.post.firstPublishedAt)}
           </time>
-          <time dateTime={post.lastPublishedAt}>
-            수정 {formatDate(post.lastPublishedAt)}
+          <time dateTime={props.post.lastPublishedAt}>
+            수정 {formatDate(props.post.lastPublishedAt)}
           </time>
-          {post.kind === "BLOG" && (
+          {props.post.kind === "BLOG" && (
             <span>{readingMinutes(d.markdown)}분 읽기</span>
           )}
         </div>
         <div className="chips">
-          {post.tags.map((t) => (
-            <Link className="chip" href={`${base}?tag=${t.id}`} key={t.id}>
+          {props.post.tags.map((t) => (
+            <Link
+              className="chip"
+              href={`${props.base}?tag=${t.id}`}
+              key={t.id}
+            >
               {t.name}
             </Link>
           ))}
@@ -53,7 +53,7 @@ export function DetailView({
           />
         )}
       </header>
-      {post.kind === "PROJECT" && (
+      {props.post.kind === "PROJECT" && (
         <>
           <dl className="project-facts">
             <div>
@@ -106,30 +106,30 @@ export function DetailView({
         <TableOfContents source={d.markdown} />
       </div>
       <div className="detail-footer">
-        <BackToList href={base} />
+        <BackToList href={props.base} />
         <Share />
       </div>
-      {adjacent && (
+      {props.adjacent && (
         <>
           <nav className="adjacent" aria-label="이전 글과 다음 글">
-            {adjacent.previous && (
-              <Link href={`${base}/${adjacent.previous.data.slug}`}>
+            {props.adjacent.previous && (
+              <Link href={`${props.base}/${props.adjacent.previous.data.slug}`}>
                 <span className="eyebrow">← 이전 글</span>
-                {adjacent.previous.data.title}
+                {props.adjacent.previous.data.title}
               </Link>
             )}
-            {adjacent.next && (
-              <Link href={`${base}/${adjacent.next.data.slug}`}>
+            {props.adjacent.next && (
+              <Link href={`${props.base}/${props.adjacent.next.data.slug}`}>
                 <span className="eyebrow">다음 글 →</span>
-                {adjacent.next.data.title}
+                {props.adjacent.next.data.title}
               </Link>
             )}
           </nav>
-          {adjacent.related.length > 0 && (
+          {props.adjacent.related.length > 0 && (
             <section>
               <h2 className="related-title">함께 읽기</h2>
               <div className="card-grid">
-                {adjacent.related.map((p) => (
+                {props.adjacent.related.map((p) => (
                   <PostCard key={p.id} post={p} />
                 ))}
               </div>

@@ -23,13 +23,7 @@ export function sectionLinks(
     .filter((s) => s.show)
     .map(({ id, label }) => ({ id, label }));
 }
-function Section({
-  id,
-  title,
-  number,
-  href,
-  children,
-}: {
+function Section(props: {
   id: string;
   title: string;
   number: string;
@@ -37,35 +31,30 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="home-section">
+    <section id={props.id} className="home-section">
       <div className="section-heading">
         <h2>
-          <span className="section-number">{number}</span>
-          {title}
+          <span className="section-number">{props.number}</span>
+          {props.title}
         </h2>
-        {href && (
-          <Link href={href} className="text-link small">
+        {props.href && (
+          <Link href={props.href} className="text-link small">
             전체 보기
             <ArrowUpRight size={15} />
           </Link>
         )}
       </div>
-      {children}
+      {props.children}
     </section>
   );
 }
-export function HomeView({
-  home,
-  projects,
-  blogs,
-  activity,
-}: {
+export function HomeView(props: {
   home: HomeData;
   projects: PostSummary[];
   blogs: PostSummary[];
   activity?: GithubActivity;
 }) {
-  if (!home.name)
+  if (!props.home.name)
     return (
       <div className="empty-home">
         <span className="eyebrow">PERSONAL PORTFOLIO</span>
@@ -83,28 +72,28 @@ export function HomeView({
   return (
     <>
       <HomeProfile
-        home={home}
-        hasProjects={projects.length > 0}
-        activity={activity}
+        home={props.home}
+        hasProjects={props.projects.length > 0}
+        activity={props.activity}
       />
-      {home.about && (
+      {props.home.about && (
         <Section id="about" title="About me" number="01">
-          <Markdown source={home.about} />
+          <Markdown source={props.home.about} />
         </Section>
       )}
-      {home.education.length > 0 && (
+      {props.home.education.length > 0 && (
         <Section id="education" title="Education" number="02">
-          <Timeline entries={home.education} />
+          <Timeline entries={props.home.education} />
         </Section>
       )}
-      {home.stack.length > 0 && (
+      {props.home.stack.length > 0 && (
         <Section id="stack" title="Stack" number="03">
           <div className="stack-groups">
-            {[...new Set(home.stack.map((t) => t.group))].map((group) => (
+            {[...new Set(props.home.stack.map((t) => t.group))].map((group) => (
               <div className="stack-group" key={group}>
                 <h3 className="eyebrow">{group || "TECHNOLOGIES"}</h3>
                 <div className="stack-items">
-                  {home.stack
+                  {props.home.stack
                     .filter((t) => t.group === group)
                     .map((t) =>
                       t.url ? (
@@ -136,24 +125,24 @@ export function HomeView({
           </div>
         </Section>
       )}
-      {home.experience.length > 0 && (
+      {props.home.experience.length > 0 && (
         <Section id="experience" title="Experience" number="04">
-          <Timeline entries={home.experience} />
+          <Timeline entries={props.home.experience} />
         </Section>
       )}
-      {projects.length > 0 && (
+      {props.projects.length > 0 && (
         <Section id="projects" title="Projects" number="05" href="/projects">
           <div className="card-grid">
-            {projects.map((p, i) => (
+            {props.projects.map((p, i) => (
               <PostCard key={p.id} post={p} index={i} />
             ))}
           </div>
         </Section>
       )}
-      {blogs.length > 0 && (
+      {props.blogs.length > 0 && (
         <Section id="blog" title="Blog" number="06" href="/blog">
           <div className="blog-grid">
-            {blogs.map((p) => (
+            {props.blogs.map((p) => (
               <PostCard key={p.id} post={p} />
             ))}
           </div>
@@ -162,10 +151,10 @@ export function HomeView({
     </>
   );
 }
-function Timeline({ entries }: { entries: HomeData["education"] }) {
+function Timeline(props: { entries: HomeData["education"] }) {
   return (
     <div className="timeline">
-      {entries.map((e) => (
+      {props.entries.map((e) => (
         <article key={e.id} className="timeline-entry">
           <div className="timeline-period mono">{e.period}</div>
           <div className="timeline-content">

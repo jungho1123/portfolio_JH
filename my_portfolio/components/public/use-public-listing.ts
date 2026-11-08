@@ -1,6 +1,6 @@
 import {
-  useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -29,6 +29,8 @@ type LoadState =
 type ListSession = {
   active: boolean;
   key: string;
+  query: string;
+  cursor: string | null;
   ready: boolean;
   request: AbortController | null;
   pages: number;
@@ -64,6 +66,26 @@ function appendUnique(
   ];
 }
 
+async function fetchListing(
+  query: string,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<ListingPage> {
+  const params = new URLSearchParams(query);
+  if (cursor) {
+    params.delete("page");
+    params.set("cursor", cursor);
+  }
+  const response = await fetch(`/api/public/posts?${params}`, {
+    cache: "no-store",
+    signal,
+  });
+  const result = await response.json();
+  if (!response.ok)
+    throw new Error(result.error || "목록을 불러오지 못했습니다.");
+  return result;
+}
+
 export function usePublicListing(
   kind: PostKind,
   initial: ListingPage,
@@ -75,28 +97,9 @@ export function usePublicListing(
   const error = loadState.status === "failed" ? loadState.message : "";
   const sentinel = useRef<HTMLDivElement>(null);
   const session = useRef<ListSession | null>(null);
-  const { sort, category, page: pageNumber } = filters;
-  // Semantic dependencies keep equivalent filter props from restarting subscriptions.
-  const tagsKey = JSON.stringify(filters.tags);
-  const storageKey = `portfolio:list:${JSON.stringify([kind, sort, category, filters.tags, pageNumber])}`;
-  const fetchPage = useCallback(
-    async (cursor?: string, signal?: AbortSignal): Promise<ListingPage> => {
-      const params = listParams(
-        kind,
-        { sort, category, tags: JSON.parse(tagsKey), page: pageNumber },
-        cursor,
-      );
-      const response = await fetch(`/api/public/posts?${params}`, {
-        cache: "no-store",
-        signal,
-      });
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(result.error || "목록을 불러오지 못했습니다.");
-      return result;
-    },
-    [kind, sort, category, tagsKey, pageNumber],
-  );
+  // Query strings are semantic configuration; callback identity owns no requests.
+  const query = listParams(kind, filters).toString();
+  const storageKey = `portfolio:list:${JSON.stringify([kind, filters.sort, filters.category, filters.tags, filters.page])}`;
 
   // Activity tears down layout effects before hiding the list or resetting the
   // document scroll. A passive cleanup can save the destination's position.
@@ -104,6 +107,8 @@ export function usePublicListing(
     const scope: ListSession = {
       active: true,
       key: storageKey,
+      query,
+      cursor: null,
       ready: false,
       request: null,
       pages: 1,
@@ -156,15 +161,24 @@ export function usePublicListing(
         } catch {}
         // In-session revalidation must include pages loaded since the last scroll event.
         const count = Math.min(Math.max(saved.pages || 1, scope.pages), 10000);
-        let result = await fetchPage(undefined, controller.signal);
+        let result = await fetchListing(
+          scope.query,
+          undefined,
+          controller.signal,
+        );
         let n = 1;
         while (scope.active && n < count && result.nextCursor) {
-          const next = await fetchPage(result.nextCursor, controller.signal);
+          const next = await fetchListing(
+            scope.query,
+            result.nextCursor,
+            controller.signal,
+          );
           result = { ...next, items: appendUnique(result.items, next.items) };
           n++;
         }
         if (scope.active && scope.request === controller) {
           scope.pages = n;
+          scope.cursor = result.nextCursor;
           setPage(result);
           // Keep the request locked until the restored DOM and scroll agree.
           // An observer notification must not append a page or cancel this frame.
@@ -212,25 +226,30 @@ export function usePublicListing(
       document.removeEventListener("visibilitychange", onVisibility);
       removeEventListener("scroll", onScroll);
     };
-  }, [storageKey, fetchPage]);
+  }, [storageKey, query]);
 
-  const loadMore = useCallback(async () => {
+  async function loadMore() {
     const scope = session.current;
     if (
       !scope?.active ||
       scope.key !== storageKey ||
       !scope.ready ||
       scope.request ||
-      !page.nextCursor
+      !scope.cursor
     )
       return;
     const controller = new AbortController();
     scope.request = controller;
     setLoadState({ status: "loading", operation: "more" });
     try {
-      const result = await fetchPage(page.nextCursor, controller.signal);
+      const result = await fetchListing(
+        scope.query,
+        scope.cursor,
+        controller.signal,
+      );
       if (scope.active && scope.request === controller) {
         scope.pages++;
+        scope.cursor = result.nextCursor;
         setPage((previous) => ({
           ...result,
           items: appendUnique(previous.items, result.items),
@@ -253,8 +272,8 @@ export function usePublicListing(
           );
       }
     }
-  }, [page.nextCursor, fetchPage, storageKey]);
-  const retry = useCallback(async () => {
+  }
+  async function retry() {
     const scope = session.current;
     if (
       !scope?.active ||
@@ -264,16 +283,23 @@ export function usePublicListing(
       return;
     if (loadState.operation === "restore") await scope.restore();
     else await loadMore();
-  }, [loadState, loadMore, storageKey]);
+  }
+  const observeMore = useEffectEvent(() => {
+    if (!error && !loading) void loadMore();
+  });
   useEffect(() => {
+    let active = true;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && !error && !loading) void loadMore();
+        if (active && entries[0]?.isIntersecting) observeMore();
       },
       { rootMargin: "160px" },
     );
     if (sentinel.current) observer.observe(sentinel.current);
-    return () => observer.disconnect();
-  }, [loadMore, error, loading]);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [storageKey, error, loading]);
   return { page, loading, error, sentinel, loadMore, retry };
 }

@@ -18,11 +18,7 @@ async function AccountControls() {
     </>
   ) : null;
 }
-export default function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function AdminLayout(props: { children: React.ReactNode }) {
   return (
     <>
       <header className="site-header">
@@ -42,7 +38,7 @@ export default function AdminLayout({
         </div>
       </header>
       <main id="main" className="admin-main">
-        {children}
+        {props.children}
       </main>
     </>
   );

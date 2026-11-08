@@ -1,12 +1,15 @@
 "use client";
-import { useState, useId, cloneElement, isValidElement } from "react";
+import {
+  useState,
+  useId,
+  useRef,
+  useLayoutEffect,
+  cloneElement,
+  isValidElement,
+} from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-export function Field({
-  label,
-  children,
-  hint,
-}: {
+export function Field(props: {
   label: string;
   children: React.ReactNode;
   hint?: string;
@@ -14,29 +17,24 @@ export function Field({
   const id = useId();
   return (
     <div className="field">
-      <label htmlFor={id}>{label}</label>
-      {isValidElement<{ id?: string; "aria-describedby"?: string }>(children)
-        ? cloneElement(children, {
+      <label htmlFor={id}>{props.label}</label>
+      {isValidElement<{ id?: string; "aria-describedby"?: string }>(
+        props.children,
+      )
+        ? cloneElement(props.children, {
             id,
-            ...(hint ? { "aria-describedby": `${id}-hint` } : {}),
+            ...(props.hint ? { "aria-describedby": `${id}-hint` } : {}),
           })
-        : children}
-      {hint && (
+        : props.children}
+      {props.hint && (
         <small className="muted" id={`${id}-hint`}>
-          {hint}
+          {props.hint}
         </small>
       )}
     </div>
   );
 }
-export function Confirm({
-  label,
-  title,
-  description,
-  danger,
-  onConfirm,
-  disabled,
-}: {
+export function Confirm(props: {
   label: string;
   title: string;
   description: string;
@@ -47,6 +45,29 @@ export function Confirm({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const session = useRef({ active: false });
+  useLayoutEffect(() => {
+    const scope = { active: true };
+    session.current = scope;
+    return () => {
+      scope.active = false;
+      setOpen(false);
+      setBusy(false);
+      setError("");
+    };
+  }, []);
+  async function confirmAction() {
+    const scope = session.current;
+    setBusy(true);
+    try {
+      await props.onConfirm();
+      if (scope.active) setOpen(false);
+    } catch (e) {
+      if (scope.active) setError(e instanceof Error ? e.message : "작업 실패");
+    } finally {
+      if (scope.active) setBusy(false);
+    }
+  }
   return (
     <Dialog.Root
       open={open}
@@ -58,16 +79,16 @@ export function Confirm({
       }}
     >
       <Dialog.Trigger
-        className={`button ${danger ? "danger" : "secondary"}`}
-        disabled={disabled}
+        className={`button ${props.danger ? "danger" : "secondary"}`}
+        disabled={props.disabled}
       >
-        {label}
+        {props.label}
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content className="confirm-dialog">
-          <Dialog.Title>{title}</Dialog.Title>
-          <Dialog.Description>{description}</Dialog.Description>
+          <Dialog.Title>{props.title}</Dialog.Title>
+          <Dialog.Description>{props.description}</Dialog.Description>
           {error && (
             <p className="notice error-notice" role="alert">
               {error}
@@ -79,18 +100,8 @@ export function Confirm({
             </Dialog.Close>
             <button
               disabled={busy}
-              className={`button ${danger ? "danger" : ""}`}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await onConfirm();
-                  setOpen(false);
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : "작업 실패");
-                } finally {
-                  setBusy(false);
-                }
-              }}
+              className={`button ${props.danger ? "danger" : ""}`}
+              onClick={confirmAction}
             >
               {busy ? "처리 중…" : "확인"}
             </button>

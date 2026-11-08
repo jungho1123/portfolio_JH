@@ -1,40 +1,67 @@
 /* eslint-disable @next/next/no-img-element -- Access-checked media routes resize images without a public optimizer cache. */
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Upload, FileText } from "lucide-react";
 import { Confirm, Field } from "@/components/admin/shared";
+import { errorMessage } from "@/lib/error-message";
+import { useAdminCollection } from "@/components/admin/use-admin-collection";
 import { api } from "@/lib/admin-api";
 import { uploadFile } from "@/lib/media-upload";
 import type { MediaItem } from "@/lib/admin-types";
-function MediaRow({
-  media,
-  reload,
-}: {
-  media: MediaItem;
-  reload: () => Promise<void>;
-}) {
-  const [name, setName] = useState(media.name);
-  const [alt, setAlt] = useState(media.alt);
+function MediaRow(props: { media: MediaItem; reload: () => Promise<void> }) {
+  const session = useRef({ active: false, request: 0 });
+  useEffect(() => {
+    const scope = { active: true, request: 0 };
+    session.current = scope;
+
+    return () => {
+      scope.active = false;
+    };
+  }, [props.media.id]);
+  const [name, setName] = useState(props.media.name);
+  const [alt, setAlt] = useState(props.media.alt);
   const [status, setStatus] = useState("");
+  async function deleteMedia() {
+    const scope = session.current;
+    await api("/api/admin/media", "DELETE", { id: props.media.id });
+    if (scope.active) await props.reload();
+  }
+  async function saveInfo() {
+    const scope = session.current;
+    const request = ++scope.request;
+    const ownsRequest = () => scope.active && request === scope.request;
+    try {
+      await api("/api/admin/media", "PATCH", {
+        id: props.media.id,
+        name,
+        alt,
+      });
+      if (!ownsRequest()) return;
+      setStatus("정보를 저장했습니다.");
+      await props.reload();
+    } catch (error) {
+      if (ownsRequest()) setStatus(errorMessage(error));
+    }
+  }
   return (
     <article className="media-row">
       <div className="media-thumb">
-        {media.status === "READY" ? (
-          media.mime.startsWith("image/") ? (
-            <img src={`/media/${media.id}?w=300`} alt={media.alt} />
+        {props.media.status === "READY" ? (
+          props.media.mime.startsWith("image/") ? (
+            <img src={`/media/${props.media.id}?w=300`} alt={props.media.alt} />
           ) : (
             <a
-              href={`/media/${media.id}`}
+              href={`/media/${props.media.id}`}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label={`${media.name} PDF 열기`}
+              aria-label={`${props.media.name} PDF 열기`}
             >
               <FileText size={40} />
             </a>
           )
         ) : (
-          <span>{media.status}</span>
+          <span>{props.media.status}</span>
         )}
       </div>
       <div className="media-info">
@@ -45,26 +72,11 @@ function MediaRow({
           <input value={alt} onChange={(e) => setAlt(e.target.value)} />
         </Field>
         <p className="small muted">
-          {media.mime} · {(media.size / 1_000_000).toFixed(2)} MB ·{" "}
-          {media.status}
+          {props.media.mime} · {(props.media.size / 1_000_000).toFixed(2)} MB ·{" "}
+          {props.media.status}
         </p>
         <div className="form-actions">
-          <button
-            className="button secondary"
-            onClick={async () => {
-              try {
-                await api("/api/admin/media", "PATCH", {
-                  id: media.id,
-                  name,
-                  alt,
-                });
-                setStatus("정보를 저장했습니다.");
-                await reload();
-              } catch (e) {
-                setStatus((e as Error).message);
-              }
-            }}
-          >
+          <button className="button secondary" onClick={saveInfo}>
             정보 저장
           </button>
           <Confirm
@@ -72,18 +84,15 @@ function MediaRow({
             title="파일을 삭제할까요?"
             description="파일 저장소에서 영구 삭제합니다. 공개본이나 초안에서 사용 중이면 삭제할 수 없습니다."
             danger
-            onConfirm={async () => {
-              await api("/api/admin/media", "DELETE", { id: media.id });
-              await reload();
-            }}
+            onConfirm={deleteMedia}
           />
         </div>
         <p className="small" role="status">
           {status}
         </p>
         <div className="media-uses">
-          <strong className="small">사용처 {media.uses.length}곳</strong>
-          {media.uses.map((use, i) => (
+          <strong className="small">사용처 {props.media.uses.length}곳</strong>
+          {props.media.uses.map((use, i) => (
             <Link
               key={i}
               className="text-link small"
@@ -104,19 +113,32 @@ function MediaRow({
   );
 }
 export function MediaManager() {
-  const [media, setMedia] = useState<MediaItem[]>([]);
-  const [error, setError] = useState("");
+  const {
+    items: media,
+    error,
+    loading,
+    setError,
+    reload,
+    session,
+  } = useAdminCollection<MediaItem>("/api/admin/media");
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
-  async function reload() {
-    setMedia(await api<MediaItem[]>("/api/admin/media"));
+  async function uploadMedia(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = "";
+    const scope = session.current;
+    setBusy(true);
+    setError("");
+    try {
+      await uploadFile(file);
+      if (scope.active) await reload();
+    } catch (error) {
+      if (scope.active) setError(errorMessage(error));
+    } finally {
+      if (scope.active) setBusy(false);
+    }
   }
-  useEffect(() => {
-    api<MediaItem[]>("/api/admin/media")
-      .then(setMedia)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+  useEffect(() => () => setBusy(false), []);
   return (
     <>
       <div className="admin-page-heading">
@@ -135,21 +157,7 @@ export function MediaManager() {
             type="file"
             accept="image/jpeg,image/png,image/webp,application/pdf"
             disabled={busy}
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              e.target.value = "";
-              setBusy(true);
-              setError("");
-              try {
-                await uploadFile(file);
-                await reload();
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}
+            onChange={uploadMedia}
           />
         </label>
       </div>

@@ -2,7 +2,7 @@
 import { ThemeProvider, useTheme } from "next-themes";
 import { Sun, Moon, Monitor } from "lucide-react";
 import * as Dropdown from "@radix-ui/react-dropdown-menu";
-export function Theme({ children }: { children: React.ReactNode }) {
+export function Theme(props: { children: React.ReactNode }) {
   return (
     <ThemeProvider
       attribute="class"
@@ -10,7 +10,7 @@ export function Theme({ children }: { children: React.ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
-      {children}
+      {props.children}
     </ThemeProvider>
   );
 }

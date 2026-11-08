@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, ArrowUpRight, Search } from "lucide-react";
+import { errorMessage } from "@/lib/error-message";
 import { api } from "@/lib/admin-api";
 import type { AdminDocument } from "@/lib/admin-types";
-import { formatDate, type PostData } from "@/lib/schemas";
+import { formatDate } from "@/lib/schemas";
 export function Dashboard() {
   const router = useRouter();
   const [items, setItems] = useState<AdminDocument[]>([]);
@@ -30,7 +31,7 @@ export function Dashboard() {
         }
       })
       .catch((e) => {
-        if (active) setError(e.message);
+        if (active) setError(errorMessage(e));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -47,7 +48,7 @@ export function Dashboard() {
       });
       router.push(`/admin/edit/${doc.id}`);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorMessage(e));
       setBusy(false);
     }
   }
@@ -139,7 +140,10 @@ export function Dashboard() {
       ) : items.length ? (
         <div className="admin-content-list">
           {items.map((item) => {
-            const d = (item.draft?.data || item.published?.data) as PostData;
+            const d =
+              item.kind !== "HOME"
+                ? item.draft?.data || item.published?.data
+                : undefined;
             return (
               <Link
                 className="admin-content-row"

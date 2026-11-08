@@ -12,11 +12,7 @@ async function Navigation() {
     <Header name={home.name} sections={sectionLinks(home, projects, blogs)} />
   );
 }
-export default function PublicLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function PublicLayout(props: { children: React.ReactNode }) {
   return (
     <>
       <Suspense
@@ -31,7 +27,7 @@ export default function PublicLayout({
         <Navigation />
       </Suspense>
       <main id="main" className="site-main">
-        {children}
+        {props.children}
       </main>
       <footer className="site-footer">
         <span>프로젝트와 배움의 기록.</span>
