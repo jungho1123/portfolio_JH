@@ -49,6 +49,7 @@ export type EditorState = {
   status: EditorStatus;
   operation: ContentAction | null;
   error: string;
+  publishError: string;
   cacheError: string | null;
   cacheVersion: number;
   conflict: boolean;
@@ -66,6 +67,7 @@ export function createEditorState(initial: AdminDocument): EditorState {
     status: "saved",
     operation: null,
     error: "",
+    publishError: "",
     cacheError: null,
     cacheVersion: 0,
     conflict: false,
@@ -96,6 +98,7 @@ export type EditorEvent =
   | { type: "saved"; doc: AdminDocument; generation: number }
   | { type: "failed"; message: string; conflict: boolean; reconcile?: boolean }
   | { type: "action-start"; action: ContentAction }
+  | { type: "publish-validation-failed"; message: string }
   | {
       type: "committed";
       action: ContentAction;
@@ -179,7 +182,9 @@ export function editorReducer(
         reconciliation: event.reconcile ? "failed" : state.reconciliation,
       };
     case "action-start":
-      return { ...state, operation: event.action, error: "" };
+      return { ...state, operation: event.action, error: "", publishError: "" };
+    case "publish-validation-failed":
+      return { ...state, publishError: event.message };
     case "committed": {
       if (event.doc === null)
         return {
@@ -235,6 +240,7 @@ export function editorReducer(
       return {
         ...state,
         operation: null,
+        publishError: "",
         status: state.status === "saving" ? "pending" : state.status,
         reconciliation: "pending",
       };

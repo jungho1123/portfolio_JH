@@ -2,6 +2,7 @@ import { useLayoutEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, requestContentAction } from "@/lib/admin-api";
 import { errorMessage } from "@/lib/error-message";
+import { mermaidCodeBlocks, validateMermaid } from "@/lib/mermaid";
 import { useEditorRecovery } from "@/components/admin/use-editor-recovery";
 import {
   adminDocumentSchema,
@@ -21,7 +22,13 @@ type Outcome =
   | { ok: true; acknowledgement: MutationAcknowledgement }
   | { ok: false; error: unknown };
 type PendingMutation = { promise: Promise<Outcome> };
-type Activation = { active: boolean; reconciliation: Promise<void> | null };
+type Activation = {
+  active: boolean;
+  reconciliation: Promise<void> | null;
+  validation: AbortController | null;
+};
+const draftChanged =
+  "편집 내용이 변경되었습니다. 수정사항 게시를 다시 눌러 주세요.";
 type Timer = { current: ReturnType<typeof setTimeout> | null };
 function cancelTimer(timer: Timer) {
   if (timer.current !== null) clearTimeout(timer.current);
@@ -99,10 +106,18 @@ export function useContentEditor(initial: AdminDocument, accountId: string) {
     editorReducer(createEditorState(initial), { type: "reconcile-start" }),
   );
   const current = useRef(state);
+  const session = useRef<Activation>({
+    active: false,
+    reconciliation: null,
+    validation: null,
+  });
   // One reducer transition updates both immediate async snapshots and render state.
   function transition(event: EditorEvent) {
-    const next = editorReducer(current.current, event);
+    const previous = current.current;
+    const next = editorReducer(previous, event);
     current.current = next;
+    if (next.generation !== previous.generation)
+      session.current.validation?.abort(new Error(draftChanged));
     setState(next);
     return next;
   }
@@ -115,7 +130,6 @@ export function useContentEditor(initial: AdminDocument, accountId: string) {
     initial.draft?.data,
     onRecoveryError,
   );
-  const session = useRef<Activation>({ active: false, reconciliation: null });
   const pending = useRef<PendingMutation | null>(null);
   const saving = useRef<Promise<void> | null>(null);
   const acting = useRef<Promise<void> | null>(null);
@@ -326,6 +340,34 @@ export function useContentEditor(initial: AdminDocument, accountId: string) {
           await flush(scope);
         check(scope);
         const snapshot = current.current;
+        if (name === "publish" && snapshot.doc.kind === "BLOG") {
+          const blocks = mermaidCodeBlocks(snapshot.doc.draft.data.markdown);
+          if (isDirty(snapshot) || (blocks.length > 0 && composing.current)) {
+            transition({
+              type: "publish-validation-failed",
+              message: draftChanged,
+            });
+            return;
+          }
+          if (blocks.length > 0) {
+            const validation = new AbortController();
+            scope.validation = validation;
+            try {
+              await validateMermaid(blocks, validation.signal);
+              validation.signal.throwIfAborted();
+            } catch (error) {
+              check(scope);
+              transition({
+                type: "publish-validation-failed",
+                message: errorMessage(error),
+              });
+              return;
+            } finally {
+              scope.validation = null;
+            }
+          }
+        }
+        check(scope);
         const operation = {
           promise: submitAction(snapshot.doc, snapshot.generation, name),
         };
@@ -425,7 +467,11 @@ export function useContentEditor(initial: AdminDocument, accountId: string) {
   });
   // Activate before hydration can replay an input or action event.
   useLayoutEffect(() => {
-    const scope: Activation = { active: true, reconciliation: null };
+    const scope: Activation = {
+      active: true,
+      reconciliation: null,
+      validation: null,
+    };
     session.current = scope;
     activate(scope);
     function beforeUnload(event: BeforeUnloadEvent) {
@@ -451,6 +497,7 @@ export function useContentEditor(initial: AdminDocument, accountId: string) {
     document.addEventListener("click", guardNavigation, true);
     return () => {
       scope.active = false;
+      scope.validation?.abort();
       // Submitted mutations retain their promises and acknowledgements. Only this
       // activation's UI work, timers and subscriptions end here.
       deactivate();
@@ -471,6 +518,7 @@ export function useContentEditor(initial: AdminDocument, accountId: string) {
     keepServer: recovery.dismiss,
     compositionStart: () => {
       composing.current = true;
+      session.current.validation?.abort(new Error(draftChanged));
       cancelTimer(timer);
     },
     compositionEnd: () => {

@@ -102,7 +102,7 @@ export function DetailView(props: {
         </>
       )}
       <div className="detail-body">
-        <Markdown source={d.markdown} />
+        <Markdown source={d.markdown} mermaid={props.post.kind === "BLOG"} />
         <TableOfContents source={d.markdown} />
       </div>
       <div className="detail-footer">

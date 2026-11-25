@@ -43,6 +43,7 @@ export function Editor(props: { initial: AdminDocument; accountId: string }) {
         savedAt={editor.savedAt}
         recovery={editor.recovery}
         error={editor.error}
+        publishError={editor.publishError}
         conflict={editor.conflict}
         cacheError={editor.cacheError}
         onRecover={editor.recover}

@@ -6,6 +6,7 @@ import rehypeSlug from "rehype-slug";
 import { Copy, Check } from "lucide-react";
 import { safeHref, readingMinutes } from "@/lib/schemas";
 import { markdownHeadings } from "@/lib/markdown-toc";
+import { renderMermaid } from "@/lib/mermaid";
 import { ZoomImage } from "@/components/public/actions";
 async function highlight(code: string, language: string) {
   try {
@@ -18,15 +19,15 @@ async function highlight(code: string, language: string) {
     return "";
   }
 }
-function CodeBlock(props: { children?: React.ReactNode }) {
-  const child = isValidElement<{ className?: string; children?: string }>(
-    props.children,
-  )
-    ? props.children
-    : null;
-  const code = String(child?.props.children ?? "").replace(/\n$/, "");
-  const language =
-    /language-([\w+-]+)/.exec(child?.props.className || "")?.[1] || "text";
+function CodeBlock(props: {
+  code: string;
+  language: string;
+  plain?: boolean;
+  action?: React.ReactNode;
+}) {
+  const code = props.code;
+  const language = props.language;
+  const plain = props.plain;
   const [rendered, setRendered] = useState({
     code: "",
     language: "",
@@ -45,15 +46,16 @@ function CodeBlock(props: { children?: React.ReactNode }) {
       timer: null as ReturnType<typeof setTimeout> | null,
     };
     session.current = scope;
-    void highlight(code, language).then((html) => {
-      if (scope.active) setRendered({ code, language, html });
-    });
+    if (!plain)
+      void highlight(code, language).then((html) => {
+        if (scope.active) setRendered({ code, language, html });
+      });
     return () => {
       scope.active = false;
       if (scope.timer !== null) clearTimeout(scope.timer);
       setCopied(false);
     };
-  }, [code, language]);
+  }, [code, language, plain]);
   async function copyCode() {
     const scope = session.current;
     const request = ++scope.copyRequest;
@@ -74,12 +76,16 @@ function CodeBlock(props: { children?: React.ReactNode }) {
     <div className="code-block">
       <div className="code-toolbar">
         <span>{language}</span>
-        <button aria-label="코드 복사" onClick={copyCode}>
-          {copied ? <Check size={14} /> : <Copy size={14} />}{" "}
-          {copied ? "복사됨" : "복사"}
-        </button>
+        <div className="code-actions">
+          {props.action}
+          <button type="button" aria-label="코드 복사" onClick={copyCode}>
+            {copied ? <Check size={14} /> : <Copy size={14} />}{" "}
+            {copied ? "복사됨" : "복사"}
+          </button>
+        </div>
       </div>
-      {rendered.html &&
+      {!plain &&
+      rendered.html &&
       rendered.code === code &&
       rendered.language === language ? (
         <div dangerouslySetInnerHTML={{ __html: rendered.html }} />
@@ -91,7 +97,83 @@ function CodeBlock(props: { children?: React.ReactNode }) {
     </div>
   );
 }
-export function Markdown(props: { source: string }) {
+
+type Diagram =
+  | { status: "pending" | "retrying" | "failed" }
+  | { status: "rendered"; src: string };
+
+function MermaidBlock(props: { code: string }) {
+  const [diagram, setDiagram] = useState<Diagram>({ status: "pending" });
+  const status = diagram.status;
+  const code = props.code;
+  useEffect(() => {
+    if (status !== "pending" && status !== "retrying") return;
+    const controller = new AbortController();
+    void renderMermaid(code, controller.signal).then(
+      (src) => {
+        if (!controller.signal.aborted) setDiagram({ status: "rendered", src });
+      },
+      () => {
+        if (!controller.signal.aborted) setDiagram({ status: "failed" });
+      },
+    );
+    return () => controller.abort();
+  }, [code, status]);
+  if (diagram.status === "rendered")
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- Mermaid SVG is a browser-generated image URL.
+      <img
+        className="mermaid-diagram"
+        src={diagram.src}
+        alt="Mermaid 다이어그램"
+        onError={() => setDiagram({ status: "failed" })}
+      />
+    );
+  return (
+    <CodeBlock
+      code={props.code}
+      language="mermaid"
+      plain
+      action={
+        (status === "failed" || status === "retrying") && (
+          <button
+            type="button"
+            disabled={status === "retrying"}
+            onClick={() =>
+              setDiagram((previous) =>
+                previous.status === "failed"
+                  ? { status: "retrying" }
+                  : previous,
+              )
+            }
+          >
+            다이어그램 다시 시도
+          </button>
+        )
+      }
+    />
+  );
+}
+
+function CodePre(props: { children?: React.ReactNode; mermaid?: boolean }) {
+  const child = isValidElement<{ className?: string; children?: string }>(
+    props.children,
+  )
+    ? props.children
+    : null;
+  const code = String(child?.props.children ?? "").replace(/\n$/, "");
+  const className = child?.props.className || "";
+  if (props.mermaid && className === "language-mermaid")
+    return <MermaidBlock key={code} code={code} />;
+  const language = /language-([\w+-]+)/.exec(className)?.[1] || "text";
+  return <CodeBlock code={code} language={language} />;
+}
+
+function BlogCodePre(props: { children?: React.ReactNode }) {
+  return <CodePre mermaid>{props.children}</CodePre>;
+}
+
+export function Markdown(props: { source: string; mermaid?: boolean }) {
   return (
     <div className="prose">
       <ReactMarkdown
@@ -121,9 +203,7 @@ export function Markdown(props: { source: string }) {
                 [이미지는 관리자에서 가져온 뒤 삽입하세요: {props.alt}]
               </span>
             ),
-          pre: (props: { children?: React.ReactNode }) => (
-            <CodeBlock>{props.children}</CodeBlock>
-          ),
+          pre: props.mermaid ? BlogCodePre : CodePre,
           table: (props: { children?: React.ReactNode }) => (
             <div
               className="table-scroll"

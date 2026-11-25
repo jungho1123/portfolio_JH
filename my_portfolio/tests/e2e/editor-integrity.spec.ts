@@ -22,7 +22,10 @@ async function login(page: Page) {
     },
   ]);
 }
-async function createDocument(page: Page): Promise<AdminDocument> {
+async function createDocument(
+  page: Page,
+  markdown = "",
+): Promise<AdminDocument> {
   const created: AdminDocument = await (
     await page.request.post("/api/admin/content", {
       headers: origin,
@@ -40,7 +43,12 @@ async function createDocument(page: Page): Promise<AdminDocument> {
       headers: origin,
       data: {
         revision: created.revision,
-        data: { ...created.draft!.data, title: "기준 초안", categoryId },
+        data: {
+          ...created.draft!.data,
+          title: "기준 초안",
+          categoryId,
+          markdown,
+        },
       },
     })
   ).json();
@@ -69,6 +77,42 @@ async function holdResponse(page: Page, id: string, method: string) {
 }
 async function fetchDocument(page: Page, id: string): Promise<AdminDocument> {
   return (await page.request.get(`/api/admin/content/${id}`)).json();
+}
+
+const diagramName = "Mermaid 다이어그램";
+const retryName = "다이어그램 다시 시도";
+const flowchart = "flowchart LR\n  A[RetryMe] --> B[Done]";
+const sequence = "sequenceDiagram\n  Alice->>Bob: Hello";
+const invalidDiagram = "flowchart LR\n  A[";
+
+function diagrams(...blocks: string[]) {
+  return blocks.map((code) => `\`\`\`mermaid\n${code}\n\`\`\``).join("\n\n");
+}
+
+function blogPath(doc: AdminDocument) {
+  if (doc.kind !== "BLOG" || !doc.draft)
+    throw new Error("Expected a blog draft");
+  return `/blog/${doc.draft.data.slug}`;
+}
+
+async function holdDiagramDecode(page: Page) {
+  await page.evaluate(() => {
+    const decode = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = function () {
+      if (!this.src.startsWith("data:image/svg+xml")) return decode.call(this);
+      HTMLImageElement.prototype.decode = decode;
+      document.documentElement.dataset.mermaidDecode = "held";
+      return new Promise<void>((resolve) => {
+        window.addEventListener("release-mermaid-decode", () => resolve(), {
+          once: true,
+        });
+      })
+        .then(() => decode.call(this))
+        .finally(() => {
+          document.documentElement.dataset.mermaidDecode = "settled";
+        });
+    };
+  });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -359,6 +403,213 @@ test("authorized previews share the detail and home views while drafts stay priv
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
     "테스트 프로필",
   );
+});
+
+test("Mermaid loads only for diagrams and the editor publishes the displayed draft revision", async ({
+  page,
+}) => {
+  const libraryRequests: string[] = [];
+  page.on("request", (request) => {
+    if (/\/_next\/static\/chunks\/[^?]*mermaid/i.test(request.url()))
+      libraryRequests.push(request.url());
+  });
+  await page.goto("/blog", { waitUntil: "networkidle" });
+  await page.goto("/blog/blog-1", { waitUntil: "networkidle" });
+  await expect(page.locator(".shiki")).toBeVisible();
+  expect(libraryRequests).toHaveLength(0);
+
+  const markdown = [
+    diagrams(flowchart),
+    "> ~~~mermaid note\n> " + sequence.replaceAll("\n", "\n> ") + "\n> ~~~",
+  ].join("\n\n");
+  const draft = await createDocument(page, markdown);
+  await page.goto(`/admin/edit/${draft.id}`);
+  await expect(page.getByRole("img", { name: diagramName })).toHaveCount(2);
+  expect(libraryRequests.length).toBeGreaterThan(0);
+
+  const popup = page.waitForEvent("popup");
+  await page
+    .locator(".editor-main-actions")
+    .getByRole("button", { name: "미리보기" })
+    .click();
+  const preview = await popup;
+  await expect(preview.getByRole("img", { name: diagramName })).toHaveCount(2);
+  await preview.close();
+
+  const published = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().endsWith(`/api/admin/content/${draft.id}`),
+  );
+  await page.getByRole("button", { name: "수정사항 게시" }).click();
+  expect((await published).postDataJSON()).toEqual({
+    action: "publish",
+    revision: draft.revision,
+  });
+  await expect(page.getByText("게시 완료", { exact: true })).toBeVisible();
+  expect((await fetchDocument(page, draft.id)).published?.data).toMatchObject({
+    markdown,
+  });
+  await page.context().clearCookies();
+  await page.goto(blogPath(draft));
+  await expect(page.getByRole("img", { name: diagramName })).toHaveCount(2);
+});
+
+test("a malformed Mermaid block prevents publishing and can still be saved and corrected", async ({
+  page,
+}) => {
+  const draft = await createDocument(page);
+  const invalid = diagrams(flowchart, invalidDiagram);
+  const fixed = diagrams(flowchart, sequence);
+  const publishes: { revision: number }[] = [];
+  await page.route(`**/api/admin/content/${draft.id}`, (route) => {
+    if (route.request().method() === "POST")
+      publishes.push(route.request().postDataJSON());
+    return route.continue();
+  });
+  await page.goto(`/admin/edit/${draft.id}`);
+  const editor = page.locator(".cm-content");
+  await editor.fill(invalid);
+  await page.getByRole("button", { name: "수정사항 게시" }).click();
+  await expect(page.locator("main").getByRole("alert")).toContainText(
+    /Mermaid 블록 2 렌더링 실패\. .+/,
+  );
+  const saved = await fetchDocument(page, draft.id);
+  expect(publishes).toHaveLength(0);
+  expect(saved.published).toBeNull();
+  expect(saved.draft?.data).toMatchObject({ markdown: invalid });
+
+  await editor.fill(invalid + "\n\n저장할 메모");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByText("저장 완료", { exact: true })).toBeVisible();
+  expect((await fetchDocument(page, draft.id)).draft?.data).toMatchObject({
+    markdown: invalid + "\n\n저장할 메모",
+  });
+  await editor.fill(fixed);
+  await page.getByRole("button", { name: "수정사항 게시" }).click();
+  await expect(page.getByText("게시 완료", { exact: true })).toBeVisible();
+  const corrected = await fetchDocument(page, draft.id);
+  expect(publishes).toEqual([
+    { action: "publish", revision: corrected.revision - 1 },
+  ]);
+  expect(corrected.published?.data).toMatchObject({ markdown: fixed });
+});
+
+for (const change of ["edit", "navigate"] as const) {
+  test(`${change} during SVG decoding cancels the pending publish`, async ({
+    page,
+  }) => {
+    const draft = await createDocument(page, diagrams(flowchart));
+    const publish = page.getByRole("button", { name: "수정사항 게시" });
+    let publishes = 0;
+    await page.route(`**/api/admin/content/${draft.id}`, (route) => {
+      if (route.request().method() === "POST") publishes++;
+      return route.continue();
+    });
+    await page.goto(`/admin/edit/${draft.id}`);
+    await expect(page.getByRole("img", { name: diagramName })).toBeVisible();
+    await holdDiagramDecode(page);
+    await publish.click();
+    const html = page.locator("html");
+    await expect(html).toHaveAttribute("data-mermaid-decode", "held");
+    expect(publishes).toBe(0);
+
+    if (change === "edit") {
+      await page.getByLabel("제목", { exact: true }).fill("검증 중 편집");
+      await expect(page.getByText("저장 완료", { exact: true })).toBeVisible();
+      await expect(page.locator("main").getByRole("alert")).toContainText(
+        "수정사항 게시를 다시 눌러 주세요",
+      );
+    } else {
+      await page.getByRole("link", { name: "콘텐츠", exact: true }).click();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+        "콘텐츠",
+      );
+    }
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("release-mermaid-decode")),
+    );
+    await expect(html).toHaveAttribute("data-mermaid-decode", "settled");
+    if (change === "navigate")
+      await page.locator(`a[href="/admin/edit/${draft.id}"]`).click();
+    await expect(publish).toBeEnabled();
+    expect(publishes).toBe(0);
+    expect((await fetchDocument(page, draft.id)).published).toBeNull();
+
+    await publish.click();
+    await expect(page.getByText("게시 완료", { exact: true })).toBeVisible();
+    expect(publishes).toBe(1);
+  });
+}
+
+test("public Mermaid retry recovers only the failed block and preserves invalid source", async ({
+  page,
+  context,
+}) => {
+  const draft = await createDocument(
+    page,
+    diagrams(flowchart, sequence, invalidDiagram),
+  );
+  const published = await page.request.post(`/api/admin/content/${draft.id}`, {
+    headers: origin,
+    data: { action: "publish", revision: draft.revision },
+  });
+  expect(published.ok()).toBe(true);
+  await context.clearCookies();
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.addInitScript(() => {
+    const decode = HTMLImageElement.prototype.decode;
+    let attempts = 0;
+    HTMLImageElement.prototype.decode = function () {
+      if (
+        !this.src.startsWith("data:image/svg+xml") ||
+        !this.src.includes("RetryMe")
+      )
+        return decode.call(this);
+      attempts++;
+      if (attempts === 1)
+        return Promise.reject(new DOMException("Fixture decode failure"));
+      return new Promise<void>((resolve) => {
+        window.addEventListener("release-mermaid-decode", () => resolve(), {
+          once: true,
+        });
+        document.documentElement.dataset.mermaidDecode = "held";
+      }).then(() => decode.call(this));
+    };
+  });
+  await page.goto(blogPath(draft));
+  const transient = page.locator(".code-block").filter({ hasText: flowchart });
+  const permanent = page
+    .locator(".code-block")
+    .filter({ hasText: invalidDiagram });
+  const unchanged = page.getByRole("img", { name: diagramName });
+  await expect(unchanged).toHaveCount(1);
+  const originalSrc = await unchanged.getAttribute("src");
+  const retry = transient.getByRole("button", { name: retryName });
+  await expect(retry).toBeEnabled();
+  await transient.getByRole("button", { name: "코드 복사" }).click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(flowchart);
+  await retry.click();
+  await expect(retry).toBeDisabled();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-mermaid-decode",
+    "held",
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("release-mermaid-decode")),
+  );
+  await expect(transient).toHaveCount(0);
+  const images = page.getByRole("img", { name: diagramName });
+  await expect(images).toHaveCount(2);
+  await expect(images.nth(1)).toHaveAttribute("src", originalSrc!);
+
+  const retryInvalid = permanent.getByRole("button", { name: retryName });
+  await retryInvalid.click();
+  await expect(retryInvalid).toBeEnabled();
+  await expect(permanent.locator("code")).toHaveText(invalidDiagram);
+  await expect(images).toHaveCount(2);
 });
 
 test("a delayed IndexedDB open from an unmounted editor cannot overwrite its next instance", async ({

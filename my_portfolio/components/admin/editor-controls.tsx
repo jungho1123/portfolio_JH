@@ -92,6 +92,7 @@ export function EditorNotices(props: {
   savedAt: string;
   recovery: Recovery | null;
   error: string;
+  publishError: string;
   conflict: boolean;
   cacheError: string | null;
   onRecover: () => void;
@@ -176,6 +177,11 @@ export function EditorNotices(props: {
               </button>
             )}
           </div>
+        </div>
+      )}
+      {props.publishError && (
+        <div className="notice error-notice" role="alert">
+          {props.publishError}
         </div>
       )}
       <CacheNotice error={props.cacheError} onRetry={props.onRetryCache} />

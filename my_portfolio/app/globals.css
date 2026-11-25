@@ -857,12 +857,25 @@ a.chip:hover {
   gap: 5px;
   align-items: center;
 }
+.code-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 12px;
+}
 .code-block pre {
   margin: 0;
   padding: 18px;
   overflow-x: auto;
   font: 12px/1.8 var(--font-mono);
   background: var(--surface);
+}
+.mermaid-diagram {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 24px auto;
+  background: #fff;
 }
 .dark .shiki,
 .dark .shiki span {

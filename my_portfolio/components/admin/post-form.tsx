@@ -330,6 +330,7 @@ export function PostForm(props: {
         <MarkdownEditor
           value={props.data.markdown}
           onChange={(markdown) => set("markdown", markdown)}
+          mermaid={props.kind === "BLOG"}
         />
       </div>
     </>

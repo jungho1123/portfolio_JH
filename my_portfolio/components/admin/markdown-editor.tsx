@@ -12,6 +12,7 @@ const emptySubscribe = () => () => {};
 export function MarkdownEditor(props: {
   value: string;
   onChange: DataChange<string>;
+  mermaid?: boolean;
 }) {
   const { resolvedTheme } = useTheme();
   // Match the server's theme during hydration before applying browser preferences.
@@ -77,7 +78,7 @@ export function MarkdownEditor(props: {
           />
         </div>
         <div className="editor-preview" aria-label="Markdown 미리보기">
-          <Markdown source={props.value} />
+          <Markdown source={props.value} mermaid={props.mermaid} />
         </div>
       </div>
     </div>
